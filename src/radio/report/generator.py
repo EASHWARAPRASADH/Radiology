@@ -14,20 +14,21 @@ from collections.abc import Iterable
 from typing import Protocol
 
 from radio.ontology.cxr import CONCEPTS, CORE_ACUTE_CONCEPTS
+from radio.report.comparison import comparable_prior, compare
+from radio.report.templates import TemplateLibrary, load_library
 from radio.schema.findings import (
     AI_DISCLAIMER,
     AnalysisResult,
     DraftReport,
     Finding,
     FindingStatus,
-    Laterality,
     Provenance,
     QualityStatus,
     ReportSentence,
     SentenceKind,
 )
 
-GENERATOR_ID = "radio.template-v0.1"
+GENERATOR_ID = load_library().tag
 
 
 class Rephraser(Protocol):
@@ -36,47 +37,19 @@ class Rephraser(Protocol):
     def rephrase(self, sentence: ReportSentence, findings: list[Finding]) -> str: ...
 
 
-def _join(items: list[str]) -> str:
+def _join(items: list[str], word: str) -> str:
     if len(items) <= 1:
         return "".join(items)
-    return ", ".join(items[:-1]) + " or " + items[-1]
+    return ", ".join(items[:-1]) + f" {word} " + items[-1]
 
 
-def _side(f: Finding) -> str:
-    c = CONCEPTS[f.code]
-    if not c.laterality_applicable:
-        return ""
-    return {Laterality.left: "left ", Laterality.right: "right ", Laterality.bilateral: "bilateral "}.get(
-        f.laterality, ""
-    )
-
-
-def _cap(s: str) -> str:
-    return s[:1].upper() + s[1:]
-
-
-def _positive_text(f: Finding) -> str:
-    c = CONCEPTS[f.code]
-    loc = f" in the {f.location}" if f.location else ""
-    meas = "".join(f", {m.name} {m.value:g} {m.unit}" for m in f.measurements)
-    if c.category == "diagnosis":
-        return f"Appearances may represent {_side(f)}{c.display}{loc}{meas}."
-    return _cap(f"{_side(f)}{c.display}{loc}{meas}.")
-
-
-def _uncertain_text(f: Finding) -> str:
-    c = CONCEPTS[f.code]
-    return f"Possible {_side(f)}{c.display}; AI confidence is indeterminate and this requires radiologist assessment."
-
-
-def _uncertain_group(fs: list[Finding]) -> ReportSentence:
+def _uncertain_group(fs: list[Finding], lib: TemplateLibrary) -> ReportSentence:
     """One sentence for several indeterminate findings (keeps every finding id for traceability)."""
     if len(fs) == 1:
-        return ReportSentence(text=_uncertain_text(fs[0]), kind=SentenceKind.uncertain, finding_ids=[fs[0].id],
-                              provenance=fs[0].provenance)
-    names = [f"{_side(f)}{CONCEPTS[f.code].display}" for f in fs]
-    text = (f"Possible {', '.join(names[:-1])} and {names[-1]}; AI confidence is indeterminate for each and "
-            "these require radiologist assessment.")
+        f = fs[0]
+        text = lib.render("uncertain_one", side=lib.side(f), display=CONCEPTS[f.code].display)
+        return ReportSentence(text=text, kind=SentenceKind.uncertain, finding_ids=[f.id], provenance=f.provenance)
+    text = lib.render("uncertain_many", list_and=_join([lib.named(f) for f in fs], "and"))
     prov = fs[0].provenance if len({f.provenance for f in fs}) == 1 else Provenance.model_inferred
     return ReportSentence(text=text, kind=SentenceKind.uncertain, finding_ids=[f.id for f in fs], provenance=prov)
 
@@ -85,10 +58,12 @@ def _by_priority(fs: Iterable[Finding]) -> list[Finding]:
     return sorted(fs, key=lambda f: CONCEPTS[f.code].priority)
 
 
-def generate_report(result: AnalysisResult, rephraser: Rephraser | None = None) -> DraftReport:
-    """Build a DraftReport from ``result`` (which must not be an abstention)."""
+def generate_report(result: AnalysisResult, rephraser: Rephraser | None = None,
+                    library: TemplateLibrary | None = None) -> DraftReport:
+    """Build a DraftReport from ``result`` (which must not be an abstention) using ``library`` templates."""
     if result.abstention is not None:
         raise ValueError("cannot generate a report for an abstained analysis")
+    lib = library or load_library()
 
     fs = result.findings
     present = _by_priority(f for f in fs if f.status == FindingStatus.present)
@@ -97,47 +72,59 @@ def generate_report(result: AnalysisResult, rephraser: Rephraser | None = None) 
     not_assessed = _by_priority(f for f in fs if f.status == FindingStatus.not_assessed)
 
     st = result.study
-    view = f", {st.view_position} view" if st.view_position else ", view not recorded"
-    study_section = [
-        ReportSentence(text=f"Chest radiograph ({st.modality}){view}.", kind=SentenceKind.context,
-                       provenance=Provenance.study_metadata)
-    ]
+    view = (lib.render("view_known", view=st.view_position) if st.view_position
+            else lib.sentences["view_unknown"])
+    study_section = [ReportSentence(text=lib.render("study", modality=st.modality, view=view),
+                                    kind=SentenceKind.context, provenance=Provenance.study_metadata)]
 
     ctx = result.clinical_context
     clinical: list[ReportSentence] = []
     if ctx.indication:
-        clinical.append(ReportSentence(text=f"Indication (as provided): {ctx.indication.strip().rstrip('.')}.",
+        clinical.append(ReportSentence(text=lib.render("indication", text=ctx.indication.strip().rstrip(".")),
                                        kind=SentenceKind.context, provenance=Provenance.clinical_history))
     if ctx.history:
-        clinical.append(ReportSentence(text=f"History (as provided): {ctx.history.strip().rstrip('.')}.",
+        clinical.append(ReportSentence(text=lib.render("history", text=ctx.history.strip().rstrip(".")),
                                        kind=SentenceKind.context, provenance=Provenance.clinical_history))
-    clinical.append(ReportSentence(
-        text=("Prior imaging is available; comparison was not performed by the AI system."
-              if ctx.priors else "No prior imaging provided; no comparison performed."),
-        kind=SentenceKind.context, provenance=Provenance.prior_report if ctx.priors else Provenance.study_metadata,
-    ))
+    prior = comparable_prior(result)
+    if prior is not None:
+        date = f" of {prior.study_date}" if prior.study_date else ""
+        clinical.append(ReportSentence(text=lib.render("priors_compared", date=date), kind=SentenceKind.context,
+                                       provenance=Provenance.prior_report))
+    else:
+        clinical.append(ReportSentence(
+            text=lib.render("priors_not_compared" if ctx.priors else "no_priors"), kind=SentenceKind.context,
+            provenance=Provenance.prior_report if ctx.priors else Provenance.study_metadata,
+        ))
+    comparison: list[ReportSentence] = []
+    if prior is not None:
+        for f, change in sorted(compare(result, prior), key=lambda fc: CONCEPTS[fc[0].code].priority):
+            comparison.append(ReportSentence(
+                text=lib.render(f"comparison_{change.value}", side=lib.side(f), display=CONCEPTS[f.code].display,
+                                date=date),
+                kind=SentenceKind.comparison, finding_ids=[f.id], provenance=Provenance.prior_report,
+                prior_id=prior.id, change=change))
 
     q = result.image_quality
     technique: list[ReportSentence] = []
     if q.status in (QualityStatus.limited, QualityStatus.non_diagnostic):
         readable = ", ".join(i.split(":")[0].replace("_", " ") for i in q.issues) or "unspecified"
-        technique.append(ReportSentence(text=f"Image quality is {q.status.value} ({readable}).",
+        technique.append(ReportSentence(text=lib.render("quality_limited", status=q.status.value, issues=readable),
                                         kind=SentenceKind.quality, provenance=Provenance.model_inferred))
 
     findings: list[ReportSentence] = []
     for f in present:
-        findings.append(ReportSentence(text=_positive_text(f), kind=SentenceKind.positive, finding_ids=[f.id],
+        findings.append(ReportSentence(text=lib.present(f), kind=SentenceKind.positive, finding_ids=[f.id],
                                        provenance=f.provenance))
     if uncertain:
-        findings.append(_uncertain_group(uncertain))
+        findings.append(_uncertain_group(uncertain, lib))
     if absent:
         findings.append(ReportSentence(
-            text=f"No {_join([CONCEPTS[f.code].display for f in absent])} identified by AI analysis.",
+            text=lib.render("absent_group", list_or=_join([CONCEPTS[f.code].display for f in absent], "or")),
             kind=SentenceKind.negative, finding_ids=[f.id for f in absent], provenance=Provenance.model_inferred,
         ))
     if not_assessed:
         findings.append(ReportSentence(
-            text="Not assessed by the AI system: " + ", ".join(CONCEPTS[f.code].display for f in not_assessed) + ".",
+            text=lib.render("not_assessed_group", list_comma=", ".join(CONCEPTS[f.code].display for f in not_assessed)),
             kind=SentenceKind.not_assessed, finding_ids=[f.id for f in not_assessed],
             provenance=Provenance.model_inferred,
         ))
@@ -146,31 +133,29 @@ def generate_report(result: AnalysisResult, rephraser: Rephraser | None = None) 
     critical = [f for f in present + uncertain if f.critical]
     for f in critical:
         impression.append(ReportSentence(
-            text=f"Suspected {_side(f)}{CONCEPTS[f.code].display}: possible critical finding flagged by AI; "
-                 "requires immediate radiologist confirmation.",
+            text=lib.render("critical", side=lib.side(f), display=CONCEPTS[f.code].display),
             kind=SentenceKind.positive if f.status == FindingStatus.present else SentenceKind.uncertain,
             finding_ids=[f.id], provenance=f.provenance,
         ))
     for f in present:
         if not f.critical:
-            impression.append(ReportSentence(text=_positive_text(f), kind=SentenceKind.positive,
+            impression.append(ReportSentence(text=lib.present(f), kind=SentenceKind.positive,
                                              finding_ids=[f.id], provenance=f.provenance))
     non_critical_uncertain = [f for f in uncertain if not f.critical]
     if non_critical_uncertain:
-        impression.append(_uncertain_group(non_critical_uncertain))
+        impression.append(_uncertain_group(non_critical_uncertain, lib))
     if not present and not uncertain:
         by_code = {f.code: f for f in fs}
         core_absent = all(c in by_code and by_code[c].status == FindingStatus.absent for c in CORE_ACUTE_CONCEPTS)
         if core_absent:
             impression.append(ReportSentence(
-                text="No acute cardiopulmonary abnormality identified by AI analysis among the assessed findings.",
+                text=lib.render("normal_summary"),
                 kind=SentenceKind.normal_summary, finding_ids=[by_code[c].id for c in CORE_ACUTE_CONCEPTS],
                 provenance=Provenance.model_inferred,
             ))
         elif absent:
             impression.append(ReportSentence(
-                text="No abnormality identified by AI analysis among the assessed findings; "
-                     "some findings were not assessed.",
+                text=lib.render("partial_negative_summary"),
                 kind=SentenceKind.negative, finding_ids=[f.id for f in absent], provenance=Provenance.model_inferred,
             ))
 
@@ -180,13 +165,14 @@ def generate_report(result: AnalysisResult, rephraser: Rephraser | None = None) 
         clinical_section=clinical,
         technique_quality=technique,
         findings=findings,
+        comparison=comparison,
         impression=impression,
         recommendations=[],  # only from APPROVED_GUIDELINES; none approved in the prototype
-        generator=GENERATOR_ID if rephraser is None else f"{GENERATOR_ID}+{rephraser.name}",
+        generator=lib.tag if rephraser is None else f"{lib.tag}+{rephraser.name}",
     )
 
     if rephraser is not None:
-        from radio.report.validator import validate_sentence
+        from radio.report.validator import novel_words, validate_sentence
 
         for section in (report.findings, report.impression):
             for i, s in enumerate(section):
@@ -196,7 +182,9 @@ def generate_report(result: AnalysisResult, rephraser: Rephraser | None = None) 
                 except Exception:  # noqa: BLE001 - any LLM failure falls back to the template
                     continue
                 candidate = s.model_copy(update={"text": new_text})
-                if not validate_sentence(candidate, result):
+                # Closed vocabulary: a rephrase may reorder template words and add neutral style words only.
+                # The term-matching validator cannot catch every synonym ("pleural fluid", "volume loss").
+                if not novel_words(s.text, new_text) and not validate_sentence(candidate, result):
                     section[i] = candidate
 
     from radio.report.validator import validate_report

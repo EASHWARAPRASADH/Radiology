@@ -12,6 +12,8 @@ Checks every report sentence against the findings IR:
 * "normal" summary only when every core acute concept was assessed and is absent
 * every present/uncertain finding is reported; critical findings appear in the impression
 * not-assessed findings are disclosed; recommendations cite an approved guideline; disclaimer present
+* comparison language only in comparison sentences; each one cites a radiologist-verified prior, and its
+  claimed change (and marker phrase) must equal the change computed from the IR and that prior
 """
 
 from __future__ import annotations
@@ -19,10 +21,12 @@ from __future__ import annotations
 import re
 
 from radio.ontology.cxr import CONCEPTS, CORE_ACUTE_CONCEPTS
+from radio.report.comparison import comparable_prior, compare, expected_change
 from radio.report.guidelines import APPROVED_GUIDELINES
 from radio.schema.findings import (
     AI_DISCLAIMER,
     AnalysisResult,
+    ComparisonChange,
     DraftReport,
     FindingStatus,
     Laterality,
@@ -38,6 +42,12 @@ _KIND_TO_STATUS = {
     SentenceKind.negative: {FindingStatus.absent},
     SentenceKind.not_assessed: {FindingStatus.not_assessed},
     SentenceKind.normal_summary: {FindingStatus.absent},
+    SentenceKind.comparison: {FindingStatus.present, FindingStatus.absent},
+}
+COMPARISON_MARKERS = {
+    ComparisonChange.new: "new since",
+    ComparisonChange.persistent: "previously reported",
+    ComparisonChange.resolved: "not identified",
 }
 _NEGATION = re.compile(r"\b(no|not|without|negative for|absence of|absent|free of|resolved)\b", re.I)
 _SIDE = re.compile(r"\b(left|right|bilateral|bilaterally)\b", re.I)
@@ -45,7 +55,7 @@ _NUMBER = re.compile(r"(?<![A-Za-z])\d+(?:\.\d+)?")
 _HEDGE = re.compile(r"\b(possible|possibly|may|might|cannot be excluded|cannot exclude|indeterminate|suspected|"
                     r"questionable|equivocal|probable)\b", re.I)
 _COMPARISON = re.compile(r"\b(compared|comparison with|unchanged|interval|stable|improved|worsened|"
-                         r"previously|new since|since the prior|resolved)\b", re.I)
+                         r"previously|new since|since the prior|prior study|resolved)\b", re.I)
 _CONTEXT_PROVENANCE = {Provenance.clinical_history, Provenance.prior_report, Provenance.study_metadata}
 
 _TERM_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -55,8 +65,31 @@ _TERM_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 
+# A side word bound to a finding term: "left pleural effusion", "bilateral lung opacity". Up to two words may sit
+# between them, but not across a comma or a coordinating "and"/"or" (so "bilateral nodule and calcification"
+# does not bind "bilateral" to calcification).
+_BOUND_SIDE: dict[str, re.Pattern[str]] = {
+    key: re.compile(r"\b(left|right|bilateral)\s+(?:(?!and\b|or\b)[a-z]+\s+){0,2}?(?:"
+                    + "|".join(re.escape(t) for t in c.terms) + r")\b", re.I)
+    for key, c in CONCEPTS.items()
+    if c.terms and c.laterality_applicable
+}
+
+# Words a rephraser may add without changing content. Anything else new is rejected (closed vocabulary).
+STYLE_WORDS = frozenset(
+    "a an the is are was were be there this these that it its of on in at by for to with also seen noted "
+    "demonstrated shown appears appear evident visible finding findings".split()
+)
+
+
 def _mentioned_concepts(text: str) -> set[str]:
     return {k for k, p in _TERM_PATTERNS.items() if p.search(text)}
+
+
+def novel_words(template_text: str, candidate_text: str) -> set[str]:
+    """Words in ``candidate_text`` that are neither in ``template_text`` nor neutral style words."""
+    tok = re.compile(r"[a-z]+")
+    return set(tok.findall(candidate_text.lower())) - set(tok.findall(template_text.lower())) - STYLE_WORDS
 
 
 def validate_sentence(
@@ -110,8 +143,28 @@ def validate_sentence(
 
     if s.kind == SentenceKind.uncertain and not _HEDGE.search(s.text):
         err("uncertainty_not_preserved", "uncertain finding stated without hedging language")
-    if _COMPARISON.search(s.text) and not result.clinical_context.priors:
-        err("unsupported_comparison", "comparison language without a linked prior study")
+    if _COMPARISON.search(s.text) and s.kind != SentenceKind.comparison:
+        err("unsupported_comparison", "comparison language outside a comparison sentence")
+
+    number_text = s.text
+    if s.kind == SentenceKind.comparison:
+        prior = next((p for p in result.clinical_context.priors if p.id == s.prior_id), None)
+        if prior is None or not prior.comparable:
+            err("comparison_without_verified_prior", "comparison sentence does not cite a radiologist-verified prior")
+        elif len(linked) != 1:
+            err("comparison_mismatch", "comparison sentence must cite exactly one current finding")
+        else:
+            pf = next((p for p in prior.findings if p.code == linked[0].code), None)
+            expected = expected_change(linked[0], pf) if pf else None
+            if expected is None or s.change != expected:
+                err("comparison_mismatch", f"claimed change {s.change} but IR and prior give {expected}")
+            marks = {c for c, m in COMPARISON_MARKERS.items() if m in s.text.lower()}
+            if s.change is not None and marks != {s.change}:
+                err("comparison_mismatch", f"text markers {sorted(m.value for m in marks)} do not state {s.change}")
+            if prior.study_date:
+                number_text = number_text.replace(prior.study_date, "")
+        if not _COMPARISON.search(s.text):
+            err("comparison_mismatch", "comparison sentence lacks comparison language")
 
     has_neg = bool(_NEGATION.search(s.text))
     if s.kind in (SentenceKind.positive, SentenceKind.uncertain) and has_neg:
@@ -126,8 +179,14 @@ def validate_sentence(
         bad = sides - allowed_sides
         if bad:
             err("laterality_unsupported", f"sentence states side {sorted(bad)} not supported by cited findings")
+        else:
+            for code, pat in _BOUND_SIDE.items():
+                for m in pat.finditer(s.text):
+                    side = m.group(1).lower()
+                    if not any(f.code == code and f.laterality.value == side for f in linked):
+                        err("laterality_unsupported", f"'{m.group(0)}': {code} is not cited with side {side}")
 
-    nums = {float(n) for n in _NUMBER.findall(s.text)}
+    nums = {float(n) for n in _NUMBER.findall(number_text)}
     if nums:
         known = {float(m.value) for f in linked for m in f.measurements}
         bad_nums = {n for n in nums if not any(abs(n - k) < 1e-6 for k in known)}
@@ -164,6 +223,14 @@ def validate_report(report: DraftReport, result: AnalysisResult) -> list[Validat
         if f.status == FindingStatus.not_assessed and f.id not in disclosed:
             issues.append(ValidationIssue(code="not_assessed_undisclosed", severity="error",
                                           message=f"{f.code} not assessed but not disclosed"))
+
+    prior = comparable_prior(result)
+    stated = {(fid, s.change) for s in report.comparison for fid in s.finding_ids}
+    if prior is not None:
+        for f, change in compare(result, prior):
+            if (f.id, change) not in stated:
+                issues.append(ValidationIssue(code="comparison_omitted", severity="error",
+                                              message=f"{f.code} is {change.value} against the prior but not stated"))
 
     for r in report.recommendations:
         if r.guideline_id not in APPROVED_GUIDELINES:

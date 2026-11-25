@@ -58,7 +58,10 @@ def score_report(
     reference_laterality: dict[str, Laterality] | None = None,
     scores: ReportScores | None = None,
     approved_guidelines: set[str] | None = None,
+    label_space: set[str] | None = None,
 ) -> ReportScores:
+    """Accumulate finding-level agreement. With ``label_space``, generated findings outside it are ignored
+    (the reference cannot say whether they are right) instead of counted as false positives."""
     s = scores or ReportScores()
     s.reports += 1
     gen = {f.code: f for f in result.findings}
@@ -82,6 +85,8 @@ def score_report(
             if g.laterality != reference_laterality[code]:
                 s.laterality_errors += 1
     for code in gen:
+        if label_space is not None and code not in label_space:
+            continue
         if code not in reference and gen[code].status in POSITIVE:
             s.fp += 1
     if result.report is not None:

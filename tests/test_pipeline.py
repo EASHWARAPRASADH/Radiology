@@ -129,6 +129,22 @@ def test_api_review_flow_and_exports(bundle_dir, tmp_path):
     assert base64.b64decode(fhir["presentedForm"][0]["data"]).decode() == "Radiologist final text."
     sr_final = pydicom.dcmread(io.BytesIO(c.get(f"/v1/studies/{rid}/sr", headers=rad).content))
     assert sr_final.CompletionFlag == "COMPLETE" and sr_final.VerificationFlag == "VERIFIED"
+
+    # Comparison priors: a study finalised with radiologist free text cannot supply verified findings.
+    upload = {"file": ("x.dcm", dcm.read_bytes())}
+    assert c.post("/v1/studies", files=upload, data={"prior_study_id": rid}, headers=tech).status_code == 409
+    second = c.post("/v1/studies", files=upload, headers=tech).json()["result_id"]
+    assert c.post("/v1/studies", files=upload, data={"prior_study_id": second}, headers=tech).status_code == 409
+    assert c.post(f"/v1/reports/{second}/review", json={"action": "approve"}, headers=rad).status_code == 200
+    third = c.post("/v1/studies", files=upload, headers=tech,
+                   data={"prior_study_id": second, "prior_study_date": "2026-01-02"})
+    assert third.status_code == 201, third.text
+    prior = third.json()["clinical_context"]["priors"][0]
+    assert prior["findings_verified_by"] == "rad-1" and prior["study_date"] == "2026-01-02"
+    text = c.get(f"/v1/studies/{third.json()['result_id']}/report", headers=tech).text
+    # With definite (present/absent) verified findings the draft compares; with none, it says it did not.
+    expected = "radiologist-verified findings" if prior["findings"] else "comparison was not performed"
+    assert expected in text
     assert c.get("/v1/health").json()["audit_chain_valid"] is True
 
 

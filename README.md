@@ -17,7 +17,7 @@ Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/). On Apple Silicon
 
 ```bash
 uv sync                      # install
-uv run pytest                # 49 tests: schema, report grounding, pipeline, API, exports, audit, detection
+uv run pytest                # 64 tests: schema, templates, report grounding, comparison, pipeline, API, exports, audit, detection
 uv run radio --help
 ```
 
@@ -108,6 +108,28 @@ uv run radio --help
    uv run radio infer runs/nih_dinov2s_224/bundle IMAGE --detector runs/chestxdet_frcnn_512/det_bundle
    ```
 
+### Phase 3: structured reporting
+
+1. Inject 20 classes of known report error into template drafts and measure what the validator catches:
+
+   ```bash
+   uv run radio validator-suite --n 5000 --out runs/validator_suite.json
+   ```
+
+2. Run the whole pipeline on ChestX-Det test images and score the drafts against radiologist labels:
+
+   ```bash
+   uv run radio report-eval runs/nih_dinov2s_224/bundle --detector runs/chestxdet_frcnn_512/det_bundle
+   ```
+
+3. Compare with an earlier study. The earlier result must be radiologist-approved, with structured findings and no free-text rewrite:
+
+   ```bash
+   uv run radio infer runs/nih_dinov2s_224/bundle IMAGE --prior earlier_result.json --prior-date 2026-03-01
+   ```
+
+   Report wording lives in `src/radio/report/templates/cxr_v1.yaml`. It is an engineering draft until radiologists sign it off.
+
 ## Layout
 
 ```
@@ -122,7 +144,7 @@ src/radio/
   train/                 training loop (MPS/CUDA/CPU), masked BCE/ASL
   calibrate/             temperature scaling, conformal present/uncertain/absent thresholds
   eval/                  classification + report-level metrics
-  report/                template generator, consistency validator, approved-guideline registry
+  report/                versioned templates (YAML), generator, validator, prior comparison, perturbation suite
   pipeline/              bundle, end-to-end pipeline with abstention, Analyzer plug-in interface
   export/                DICOM SR (highdicom), FHIR R4B DiagnosticReport
   audit/                 hash-chained append-only audit log

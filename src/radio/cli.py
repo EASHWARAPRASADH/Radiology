@@ -163,6 +163,92 @@ def regate(run_dir: Path, leak_file: Path = Path("data/chestx_det/test_patient_l
     typer.echo(f"validated after re-gate (excluded {len(exclude)} leaky images): {res['validated']}")
 
 
+@app.command("validator-suite")
+def validator_suite(n: int = 2000, seed: int = 0, out: Path = typer.Option(None)):
+    """WP 3.2: inject known report errors into template drafts of random IRs; report validator detection rates."""
+    import random
+
+    from radio.report.perturb import random_result, run_suite
+
+    rng = random.Random(seed)
+    res = run_suite([random_result(rng) for _ in range(n)], seed=seed)
+    typer.echo(f"{n} random IRs; unperturbed drafts failing validation: {res['unperturbed_failures']}")
+    typer.echo(f"{'probe':<32}{'applied':>8}{'any error':>11}{'expected':>10}")
+    for k, v in res["probes"].items():
+        typer.echo(f"{k:<32}{v['applied']:>8}{v['detected_any_error']:>11.3f}{v['detected_expected_code']:>10.3f}")
+    rp = res["rephraser_synonym_injection"]
+    typer.echo(f"hostile rephraser: {rp['synonyms_in_final_draft']} of {rp['sentences_offered']} sentences "
+               "kept an injected synonym")
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2))
+
+
+@app.command("report-eval")
+def report_eval(bundle: Path, detector: Path = typer.Option(None), det_root: Path = Path("data/chestx_det"),
+                split: str = "test", out: Path = Path("runs/report_eval"),
+                matches: Path = Path("data/chestx_det/nih_matches.json"),
+                nih_test_list: Path = Path("data/nih/test_list.txt"),
+                leak_file: Path = Path("data/chestx_det/test_patient_leak.json"),
+                view_position: str = "PA", limit: int = typer.Option(None)):
+    """WP 3.4: run the full pipeline on ChestX-Det images and score the draft reports against radiologist labels.
+
+    Excludes ChestX-Det copies of NIH images the classifier trained or calibrated on, and test images that share
+    a patient with ChestX-Det train (the detector's training set)."""
+    from radio.data.chestx_det import DET_CONCEPTS, load_split
+    from radio.eval.report_eval import evaluate_reports
+    from radio.pipeline.bundle import ModelBundle
+    from radio.pipeline.run import AnalysisPipeline
+
+    exclude: set[str] = set()
+    if matches.exists():
+        nih_test = set(nih_test_list.read_text().split()) if nih_test_list.exists() else set()
+        exclude |= {k for k, v in json.loads(matches.read_text()).items() if v not in nih_test}
+    if leak_file.exists():
+        exclude |= set(json.loads(leak_file.read_text())["leaky_test_images"])
+    all_recs = load_split(det_root, split)
+    recs = [r for r in all_recs if r.file_name not in exclude][:limit]
+    n_excluded = len(all_recs) - len([r for r in all_recs if r.file_name not in exclude])
+    det = None
+    if detector:
+        from radio.models.detector import DetectorBundle
+
+        det = DetectorBundle(detector)
+    pipe = AnalysisPipeline(ModelBundle.load(bundle), detector=det)
+    out.mkdir(parents=True, exist_ok=True)
+    results_dir = out / "results"
+    results_dir.mkdir(exist_ok=True)
+
+    def items():
+        for i, rec in enumerate(recs):
+            r = pipe.analyze(rec.path, view_position=view_position).result
+            (results_dir / f"{rec.file_name}.json").write_text(r.model_dump_json())
+            boxes = {c: rec.boxes[[lab == c for lab in rec.labels]] for c in DET_CONCEPTS}
+            if (i + 1) % 50 == 0:
+                typer.echo(f"  {i + 1}/{len(recs)}")
+            yield rec.file_name, r, rec.image_labels, boxes
+
+    res = evaluate_reports(items(), DET_CONCEPTS)
+    res["excluded_images"] = n_excluded
+    res["detector"] = str(detector) if detector else None
+    (out / "report_eval.json").write_text(json.dumps(res, indent=2))
+    s = res["summary"]
+    typer.echo(f"{s['images']} images ({n_excluded} {split} images excluded), abstained {s['abstained']}, "
+               f"validation pass {s['validation_pass_rate']:.3f}, false-normal reports {s['false_normal_reports']}")
+    typer.echo(f"finding precision {s['finding_precision']:.3f} recall {s['finding_recall']:.3f} "
+               f"hallucination {s['hallucination_rate']:.3f}; mean asserted {s['mean_asserted_findings']:.2f}, "
+               f"uncertain {s['mean_uncertain_findings']:.2f}; reports with a false 'absent' "
+               f"{s['reports_with_false_absent']}")
+    typer.echo(f"{'concept':<20}{'ref+':>5}{'flagged':>9}{'false abs':>10}{'n/a':>6}{'PPV pres':>9}"
+               f"{'loc claims':>11}{'loc hit':>8}")
+    for c, v in res["per_concept"].items():
+        p = v["ref_positive"]
+        typer.echo(f"{c:<20}{p['n']:>5}{v['sensitivity_flagged']:>9.2f}{v['false_absent_rate']:>10.2f}"
+                   f"{p['not_assessed']:>6.2f}{v['ppv_present']:>9.2f}{v['localised_claims']:>11}"
+                   f"{v['localised_claim_hit_rate']:>8.2f}")
+    typer.echo(out / "report_eval.json")
+
+
 @app.command("eval-pointing")
 def eval_pointing(bundle: Path, det_root: Path = Path("data/chestx_det"), run_dir: Path = typer.Option(None),
                   matches: Path = Path("data/chestx_det/nih_matches.json"), split: str = "test",
@@ -196,7 +282,9 @@ def eval_pointing(bundle: Path, det_root: Path = Path("data/chestx_det"), run_di
 @app.command()
 def infer(bundle: Path, image: Path, indication: str = typer.Option(None), view_position: str = typer.Option(None),
           json_out: Path = typer.Option(None, "--json"), heatmap_dir: Path = typer.Option(None),
-          detector: Path = typer.Option(None, help="Detector bundle dir (Phase 2)")):
+          detector: Path = typer.Option(None, help="Detector bundle dir (Phase 2)"),
+          prior: Path = typer.Option(None, help="Approved AnalysisResult JSON of an earlier study, same patient"),
+          prior_date: str = typer.Option(None)):
     """Analyse one image and print the draft report."""
     from radio.pipeline.bundle import ModelBundle
     from radio.pipeline.run import AnalysisPipeline
@@ -207,8 +295,18 @@ def infer(bundle: Path, image: Path, indication: str = typer.Option(None), view_
         from radio.models.detector import DetectorBundle
 
         det = DetectorBundle(detector)
+    priors = []
+    if prior:
+        from radio.report.comparison import PriorNotVerifiable, prior_from_result
+        from radio.schema.findings import AnalysisResult
+
+        try:
+            priors.append(prior_from_result(AnalysisResult.model_validate_json(prior.read_text()), prior_date))
+        except PriorNotVerifiable as e:
+            typer.echo(f"[prior not used for comparison: {e}]")
     pipe = AnalysisPipeline(ModelBundle.load(bundle), detector=det)
-    out = pipe.analyze(image, context=ClinicalContext(indication=indication), view_position=view_position)
+    out = pipe.analyze(image, context=ClinicalContext(indication=indication, priors=priors),
+                       view_position=view_position)
     r = out.result
     if json_out:
         json_out.write_text(r.model_dump_json(indent=2))

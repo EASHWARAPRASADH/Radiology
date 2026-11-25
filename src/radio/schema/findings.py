@@ -198,10 +198,38 @@ class StudyInfo(_Model):
     image_columns: int | None = None
 
 
+class PriorFinding(_Model):
+    """Final, radiologist-verified status of one concept on a prior study."""
+
+    code: str
+    status: FindingStatus
+    laterality: Laterality = Laterality.unknown
+
+
 class PriorStudy(_Model):
+    id: str = Field(default_factory=_id)
     study_date: str | None = None
     report_text: str | None = None
     provenance: Literal[Provenance.prior_report] = Provenance.prior_report
+    findings: list[PriorFinding] = Field(
+        default_factory=list,
+        description="Structured findings of the prior, only if a radiologist verified them (see findings_verified_by).",
+    )
+    findings_verified_by: str | None = None
+
+    @model_validator(mode="after")
+    def _verified(self) -> PriorStudy:
+        if self.findings and not self.findings_verified_by:
+            raise ValueError("prior findings must name the radiologist who verified them")
+        if any(f.status not in (FindingStatus.present, FindingStatus.absent) for f in self.findings):
+            raise ValueError("prior findings may only be present or absent")
+        if len({f.code for f in self.findings}) != len(self.findings):
+            raise ValueError("each concept may appear at most once per prior")
+        return self
+
+    @property
+    def comparable(self) -> bool:
+        return bool(self.findings and self.findings_verified_by)
 
 
 class ClinicalContext(_Model):
@@ -226,6 +254,13 @@ class SentenceKind(StrEnum):
     normal_summary = "normal_summary"
     context = "context"  # clinical/study context, not an image finding
     quality = "quality"
+    comparison = "comparison"  # change of one finding against a radiologist-verified prior
+
+
+class ComparisonChange(StrEnum):
+    new = "new"  # prior absent -> current present
+    persistent = "persistent"  # prior present -> current present
+    resolved = "resolved"  # prior present -> current absent
 
 
 class ReportSentence(_Model):
@@ -233,6 +268,8 @@ class ReportSentence(_Model):
     kind: SentenceKind
     finding_ids: list[str] = Field(default_factory=list)
     provenance: Provenance
+    prior_id: str | None = None  # comparison sentences: the PriorStudy compared against
+    change: ComparisonChange | None = None  # comparison sentences: the claimed change
 
 
 class Recommendation(_Model):
@@ -256,6 +293,7 @@ class DraftReport(_Model):
     clinical_section: list[ReportSentence] = Field(default_factory=list)
     technique_quality: list[ReportSentence] = Field(default_factory=list)
     findings: list[ReportSentence] = Field(default_factory=list)
+    comparison: list[ReportSentence] = Field(default_factory=list)
     impression: list[ReportSentence] = Field(default_factory=list)
     recommendations: list[Recommendation] = Field(default_factory=list)
     generator: str
@@ -268,6 +306,7 @@ class DraftReport(_Model):
             "clinical": self.clinical_section,
             "technique_quality": self.technique_quality,
             "findings": self.findings,
+            "comparison": self.comparison,
             "impression": self.impression,
         }
 
@@ -282,6 +321,7 @@ class DraftReport(_Model):
             block("CLINICAL INFORMATION", self.clinical_section),
             block("TECHNIQUE / QUALITY", self.technique_quality),
             block("FINDINGS", self.findings),
+            *([block("COMPARISON", self.comparison)] if self.comparison else []),
             block("IMPRESSION", self.impression),
             "RECOMMENDATIONS:\n" + (" ".join(r.text for r in self.recommendations) or "None."),
         ]

@@ -1,0 +1,54 @@
+# Radio chest X-ray report template library.
+#
+# STATUS: engineering draft. Wording was written by engineers to satisfy the validator rules (06, stage 12);
+# it has NOT been authored or approved by radiologists. Phase 3 exit requires radiologist authorship and
+# sign-off (fill clinical_review) before any clinical use. See docs/blueprint/13-prototype-plan.md §6.
+#
+# Placeholders: {side} = "left " / "right " / "bilateral " / "" (only for laterality-applicable concepts);
+# {display} = concept display name; {loc} = " in the <location>" or ""; {meas} = ", <name> <value> <unit>"...;
+# {suffix} = provenance_suffix[provenance]; {list_and}/{list_or}/{list_comma} = joined display names;
+# {date} = " of <prior study date>" or "".
+# Comparison sentences must keep their marker phrase ("new since", "previously reported", "not identified"):
+# the validator checks the phrase against the change computed from the IR and the verified prior.
+# A sentence is capitalised after formatting.
+
+id: radio-cxr-templates
+version: 1.0.0
+status: engineering_draft
+clinical_review:
+  reviewed_by: null
+  reviewed_on: null
+
+# Doc 06 provenance table: model_inferred statements need inference wording; image_observed ones point to
+# a validated localisation. Must not contain negation, comparison or side words (validator rules).
+provenance_suffix:
+  image_observed: " (AI-localised; see overlay)"
+  model_inferred: " (AI-inferred from the whole image; location unverified)"
+  radiologist_entered: ""
+
+sentences:
+  study: "Chest radiograph ({modality}){view}."
+  view_known: ", {view} view"
+  view_unknown: ", view not recorded"
+  indication: "Indication (as provided): {text}."
+  history: "History (as provided): {text}."
+  priors_not_compared: "Prior imaging is available; comparison was not performed by the AI system."
+  no_priors: "No prior imaging provided; no comparison performed."
+  priors_compared: "Comparison: prior chest radiograph{date} with radiologist-verified findings."
+  comparison_new: "{side}{display}: new since the prior study{date} (AI comparison)."
+  comparison_persistent: "{side}{display}: previously reported on the prior study{date} (AI comparison)."
+  comparison_resolved: "{display}: reported on the prior study{date}, not identified by AI analysis on this study (AI comparison)."
+  quality_limited: "Image quality is {status} ({issues})."
+  present_finding: "{side}{display}{loc}{meas}{suffix}."
+  present_diagnosis: "Appearances may represent {side}{display}{loc}{meas}{suffix}."
+  uncertain_one: "Possible {side}{display}; AI confidence is indeterminate and this requires radiologist assessment."
+  uncertain_many: "Possible {list_and}; AI confidence is indeterminate for each and these require radiologist assessment."
+  absent_group: "No {list_or} identified by AI analysis."
+  not_assessed_group: "Not assessed by the AI system: {list_comma}."
+  critical: "Suspected {side}{display}: possible critical finding flagged by AI; requires immediate radiologist confirmation."
+  normal_summary: "No acute cardiopulmonary abnormality identified by AI analysis among the assessed findings."
+  partial_negative_summary: "No abnormality identified by AI analysis among the assessed findings; some findings were not assessed."
+
+# Per-concept overrides of present_finding / present_diagnosis (key: concept code). Empty until radiologists
+# author concept-specific phrasing.
+concept_overrides: {}

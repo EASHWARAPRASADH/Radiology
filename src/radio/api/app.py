@@ -85,17 +85,30 @@ def create_app(bundle_dir: str | Path | None, storage_dir: str | Path = "runs/ap
 
     @app.post("/v1/studies", response_model=AnalysisResult, status_code=201)
     async def create_study(user: Annotated[User, Depends(current_user)], file: UploadFile = File(...),
-                           indication: str | None = Form(None), view_position: str | None = Form(None)):
+                           indication: str | None = Form(None), view_position: str | None = Form(None),
+                           prior_study_id: str | None = Form(None,
+                                                             description="Earlier approved result of the SAME patient "
+                                                             "(the caller is responsible for patient matching)"),
+                           prior_study_date: str | None = Form(None)):
         if pipeline is None:
             raise HTTPException(503, "no model bundle loaded")
+        priors = []
+        if prior_study_id:
+            from radio.report.comparison import PriorNotVerifiable, prior_from_result
+
+            try:
+                priors.append(prior_from_result(store.get(prior_study_id).result, prior_study_date))
+            except PriorNotVerifiable as e:
+                raise HTTPException(409, f"prior cannot be used for comparison: {e}") from e
         suffix = Path(file.filename or "upload.dcm").suffix or ".dcm"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
             tmp.write(await file.read())
             tmp.flush()
-            out = pipeline.analyze(tmp.name, context=ClinicalContext(indication=indication),
+            out = pipeline.analyze(tmp.name, context=ClinicalContext(indication=indication, priors=priors),
                                    view_position=view_position)
         store.save(out)
-        audit.append("study_submitted", actor=user.id, subject=out.result.result_id)
+        audit.append("study_submitted", actor=user.id, subject=out.result.result_id,
+                     payload={"prior_study_id": prior_study_id} if prior_study_id else None)
         return out.result
 
     @app.get("/v1/studies/{rid}", response_model=AnalysisResult)

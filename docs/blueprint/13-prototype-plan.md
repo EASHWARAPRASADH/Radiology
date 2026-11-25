@@ -230,7 +230,104 @@ uv run radio train configs/classifier_nih_mac.yaml
 uv run radio calibrate runs/nih_dinov2s_224
 uv run radio evaluate runs/nih_dinov2s_224
 uv run radio serve runs/nih_dinov2s_224/bundle   # then see 11-api-spec.md §2.2
+# Phase 2
+scripts/fetch_chestx_det.sh
+uv run radio dedupe-chestx-det && uv run radio leak-check-chestx-det
+uv run radio train-detector configs/detector_chestxdet.yaml
+uv run radio regate-detector runs/chestxdet_frcnn_512
+# Phase 3
+uv run radio validator-suite --n 5000 --out runs/validator_suite.json
+uv run radio report-eval runs/nih_dinov2s_224/bundle --detector runs/chestxdet_frcnn_512/det_bundle
 ```
+
+## 6. Phase 3: structured reporting (started 2026-11-25)
+
+Scope on this Mac with public data only. Items that need radiologists or partner report text are listed as blocked rather than approximated.
+
+| WP | Task | Status |
+|---|---|---|
+| 3.1 Template library | Templates moved from code to versioned data: `src/radio/report/templates/cxr_v1.yaml`, loaded by `report/templates.py`. Loading is fail-closed: a missing sentence or provenance suffix raises. Every draft records `radio-cxr-templates@1.0.0`. Statements now carry provenance wording, per doc 06 §5. `model_inferred` reads "(AI-inferred from the whole image; location unverified)" and `image_observed` reads "(AI-localised; see overlay)". Before this, a whole-image classifier call read exactly like a localised one | Done. Exhaustive test: all 954 schema-valid combinations of concept, status, laterality, provenance and critical render a draft that passes validation, names the finding and states its side. **The wording is an engineering draft:** `clinical_review.reviewed_by` is null until radiologists author and sign it |
+| 3.2 Synthetic perturbation suite | `report/perturb.py`, `radio validator-suite`. Injects 20 classes of known error into template drafts of random IRs and counts how many the validator catches | Done; results below. The suite found and fixed one real validator gap |
+| 3.3 Comparison with priors | `report/comparison.py`. Compares only against a prior's **radiologist-verified structured findings** (`PriorStudy.findings_verified_by`). New `comparison` sentence kind and report section. The validator recomputes every claimed change from the IR and the prior | Done for CLI (`infer --prior`) and API (`prior_study_id`). Patient matching is the caller's job and is recorded in audit |
+| 3.4 Report-level evaluation | `eval/report_eval.py`, `radio report-eval`. Runs the full pipeline on ChestX-Det test images and scores what each draft asserts against radiologist labels | Done; results below |
+| 3.5 Constrained LLM rephraser | Closed-vocabulary guard added (below). The LLM itself is not selected or downloaded | Pending: needs a licence check and approval to download a model |
+| 3.6 Gold QA set (~300 reports) | — | **Blocked:** needs radiologist authorship |
+| 3.7 Guideline-backed recommendations | `APPROVED_GUIDELINES` stays empty | **Blocked:** needs clinical safety officer approval of specific rules |
+| 3.8 Report metrics dashboard | JSON plus CLI tables only | Pending |
+
+### 6.1 Comparison rules
+
+| Prior (verified) | Current | Statement |
+|---|---|---|
+| absent | present | "X: new since the prior study of DATE (AI comparison)." |
+| present | present | "X: previously reported on the prior study of DATE (AI comparison)." No claim about size or severity |
+| present | absent | "X: reported on the prior study of DATE, not identified by AI analysis on this study (AI comparison)." |
+| absent | absent | Nothing |
+| any | uncertain or not assessed | Nothing |
+| side known on both and different | any | Nothing |
+
+- **Which priors can be compared:** a prior is used only if a radiologist approved the AI draft, or amended it through structured finding overrides only. If the final report is radiologist free text, its structured findings may not match what the radiologist wrote, so the prior is refused for comparison. The CLI warns; the API returns 409. Unreviewed AI drafts are never used as priors.
+- **The validator side** has three error codes:
+  - `comparison_mismatch`: the claimed change, or its marker phrase, differs from the change computed from the IR and the prior.
+  - `comparison_omitted`: a computed change is not stated.
+  - `comparison_without_verified_prior`: the sentence cites no verified prior.
+- **Comparison wording is now allowed only in comparison sentences.** Before this, any sentence could say "unchanged" as long as some prior was attached.
+
+### 6.2 Validator perturbation suite (5,000 random IRs, half with a verified prior)
+
+Each of the 5,000 unperturbed drafts passed. Detection rate = share of perturbed drafts where the validator raised the expected error code.
+
+| Injected error | Applied | Detected |
+|---|---|---|
+| Side swapped (left ↔ right, bilateral → left) | 3,917 | 1.000 |
+| Side added to a finding of unknown side | 1,846 | 1.000 |
+| Positive statement negated / "No" removed from a negative | 4,696 / 4,998 | 1.000 / 1.000 |
+| Hedging removed from an uncertain finding | 4,676 | 1.000 |
+| Uncited finding mentioned (canonical term) | 5,000 | 1.000 |
+| Comparison wording in a finding sentence | 4,696 | 1.000 |
+| Invented measurement | 4,696 | 1.000 |
+| Present finding dropped / critical finding dropped from impression / not-assessed list dropped | 4,696 / 1,878 / 4,986 | 1.000 each |
+| Unapproved recommendation / disclaimer altered / false "normal" / ungrounded sentence / sentence kind swapped | 4,989 / 5,000 / 4,989 / 5,000 / 4,696 | 1.000 each |
+| Comparison: change flipped / wording flipped / statement dropped | 2,467 each | 1.000 each |
+| **Uncited finding mentioned by a synonym** ("pleural fluid", "volume loss", "enlarged heart"…) | 5,000 | **0.040** |
+
+How to read this:
+
+- **The suite found a real gap, now fixed.** Side words were checked per sentence, not per finding. In a grouped sentence ("Possible left lung opacity and bilateral nodule"), moving a side from one finding to another went unnoticed 20% of the time. The validator now binds each side word to the finding term it modifies.
+- **100% partly reflects construction.** The probes were written by the same people as the rules, so a perfect score shows the rules do what they say. It does not show the rule set is complete. The gold QA set (3.6) and a radiologist-written error taxonomy are the independent check.
+- **The validator alone misses findings described by synonyms.** It recognises findings by canonical terms, so synonyms slip through. That matters only for text the generator did not write, which in this design means the optional LLM rephraser. Rephrased sentences now face a **closed vocabulary**: a rephrase may reorder template words and add a short list of neutral words ("is", "seen", "noted"…), and nothing else. A hostile rephraser that appended a synonym to every sentence got 0 of 46,132 sentences through. The validator is not suitable for checking free text such as radiologist reports (16 R29).
+
+### 6.3 Report-level results on radiologist labels (ChestX-Det test, measured 2026-11-25)
+
+The full pipeline ran on 416 test images: the Phase-1 classifier `nih_dinov2s_224`, the Phase-2 detector gated on the lower confidence bound, the templates and the validator. Excluded were 137 test images: copies of NIH images the classifier trained or calibrated on, plus images that share a patient with detector training. View was set to PA because the PNGs carry no view tag. Run time was 7.5 min on MPS. The reference is the radiologist boxes: a concept is present if a radiologist boxed it. Only the 12 ChestX-Det concepts are scored.
+
+| Report-level | Value |
+|---|---|
+| Drafts passing validation | 416 / 416 |
+| Abstentions | 0 |
+| False "normal" impressions | 0. The normal summary was never used: some finding was always present or uncertain |
+| Contradictions (one finding both positive and negative) | 0 |
+| Reports with a false "absent" (says "no X", radiologist marked X) | **13 (3.1%)** |
+| Mean findings asserted per report (present + uncertain) | 5.5, of which **5.0 uncertain** |
+| Finding precision / recall (uncertain counts as asserted) | 0.31 / 0.67 |
+
+| Concept | Ref. positive | Radiologist-positive images → present / uncertain / **absent** / not assessed | Radiologist-negative images → present / uncertain / absent | PPV of `present` |
+|---|---|---|---|---|
+| Pleural effusion | 209 | 0.23 / 0.74 / **0.03** / 0 | 0.00 / 0.77 / 0.23 | 0.98 |
+| Consolidation | 227 | 0.12 / 0.86 / **0.02** / 0 | 0.02 / 0.84 / 0.15 | 0.90 |
+| Nodule | 95 | 0.07 / 0.89 / **0.03** / 0 | 0.06 / 0.92 / 0.02 | 0.26 |
+| Fibrosis | 53 | 0.21 / 0.79 / 0 / 0 | 0.07 / 0.86 / 0.07 | 0.30 |
+| Atelectasis | 44 | 0.16 / 0.84 / 0 / 0 | 0.11 / 0.88 / 0.01 | 0.15 |
+| Cardiomegaly, emphysema, mass, pneumothorax, calcification, fracture, pleural thickening | 25–70 each | not assessed on every image | — | — |
+
+Localisation: the detector made 303 validated consolidation box claims (`image_observed`). Of these, 66% hit a radiologist consolidation box at IoU ≥ 0.25.
+
+What this shows:
+
+- **The reporting layer behaves safely.** Every draft validated. No report called an abnormal image normal. When the system was confident (`present`), effusion was right 98% of the time and consolidation 90%.
+- **Misses are rare and stay within the calibration target.** Radiologist-positive images were called `absent` in 2–3% of cases for effusion, consolidation and nodule. The conformal thresholds were set for a false-negative rate of at most 0.05 on NIH labels, so this transfer to radiologist labels is roughly in line. Those 13 reports still contain a confident false negative, and they are the cases for the reader study to look at.
+- **The drafts are not useful yet: uncertainty overwhelms them.** About 85% of scored statuses are `uncertain`, even on images the radiologist marked negative. A typical draft lists five "possible" findings, which invites alert fatigue and automation bias (16 R28). The cause is the perception model, not the reporting layer. The classifier was trained on one NIH batch at 224 px (AUROC 0.6–0.8). A weak score means the band between the conformal miss-control threshold and the false-alarm-control threshold covers most images. The reporting layer is ready for a stronger classifier: full-data training at higher resolution in the cloud (14).
+- **Fusion gap: validated detector classes are dropped when the classifier cannot assess them.** Cardiomegaly passes the detector gate (sensitivity lower bound 0.93), yet it was `not_assessed` on every image. The classifier has too little calibration data for cardiomegaly, and `pipeline/run.py` stops at that point before looking at detector evidence. A proposed fix is to treat a validated box as an `uncertain`, `image_observed` claim in that case, but it needs a decision because it adds to the uncertainty load.
 
 ## Sources
 

@@ -613,6 +613,29 @@
               }
             ],
             "title": "View Position"
+          },
+          "prior_study_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Study Id",
+            "description": "Earlier approved result of the SAME patient (the caller is responsible for patient matching)"
+          },
+          "prior_study_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Study Date"
           }
         },
         "type": "object",
@@ -691,6 +714,15 @@
         "type": "object",
         "title": "ClinicalContext"
       },
+      "ComparisonChange": {
+        "type": "string",
+        "enum": [
+          "new",
+          "persistent",
+          "resolved"
+        ],
+        "title": "ComparisonChange"
+      },
       "CriticalStatus": {
         "type": "string",
         "enum": [
@@ -740,6 +772,13 @@
             },
             "type": "array",
             "title": "Findings"
+          },
+          "comparison": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSentence"
+            },
+            "type": "array",
+            "title": "Comparison"
           },
           "impression": {
             "items": {
@@ -1155,8 +1194,35 @@
         ],
         "title": "ModelEvidence"
       },
+      "PriorFinding": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FindingStatus"
+          },
+          "laterality": {
+            "$ref": "#/components/schemas/Laterality",
+            "default": "unknown"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "status"
+        ],
+        "title": "PriorFinding",
+        "description": "Final, radiologist-verified status of one concept on a prior study."
+      },
       "PriorStudy": {
         "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
           "study_date": {
             "anyOf": [
               {
@@ -1184,6 +1250,25 @@
             "const": "prior_report",
             "title": "Provenance",
             "default": "prior_report"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/PriorFinding"
+            },
+            "type": "array",
+            "title": "Findings",
+            "description": "Structured findings of the prior, only if a radiologist verified them (see findings_verified_by)."
+          },
+          "findings_verified_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Findings Verified By"
           }
         },
         "additionalProperties": false,
@@ -1259,6 +1344,27 @@
           },
           "provenance": {
             "$ref": "#/components/schemas/Provenance"
+          },
+          "prior_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Id"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComparisonChange"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -1398,7 +1504,8 @@
           "not_assessed",
           "normal_summary",
           "context",
-          "quality"
+          "quality",
+          "comparison"
         ],
         "title": "SentenceKind"
       },

@@ -98,6 +98,15 @@
       "title": "ClinicalContext",
       "type": "object"
     },
+    "ComparisonChange": {
+      "enum": [
+        "new",
+        "persistent",
+        "resolved"
+      ],
+      "title": "ComparisonChange",
+      "type": "string"
+    },
     "CriticalStatus": {
       "enum": [
         "none_detected",
@@ -147,6 +156,13 @@
             "$ref": "#/$defs/ReportSentence"
           },
           "title": "Findings",
+          "type": "array"
+        },
+        "comparison": {
+          "items": {
+            "$ref": "#/$defs/ReportSentence"
+          },
+          "title": "Comparison",
           "type": "array"
         },
         "impression": {
@@ -561,9 +577,36 @@
       "title": "ModelEvidence",
       "type": "object"
     },
+    "PriorFinding": {
+      "additionalProperties": false,
+      "description": "Final, radiologist-verified status of one concept on a prior study.",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FindingStatus"
+        },
+        "laterality": {
+          "$ref": "#/$defs/Laterality",
+          "default": "unknown"
+        }
+      },
+      "required": [
+        "code",
+        "status"
+      ],
+      "title": "PriorFinding",
+      "type": "object"
+    },
     "PriorStudy": {
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
         "study_date": {
           "anyOf": [
             {
@@ -593,6 +636,26 @@
           "default": "prior_report",
           "title": "Provenance",
           "type": "string"
+        },
+        "findings": {
+          "description": "Structured findings of the prior, only if a radiologist verified them (see findings_verified_by).",
+          "items": {
+            "$ref": "#/$defs/PriorFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "findings_verified_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Findings Verified By"
         }
       },
       "title": "PriorStudy",
@@ -668,6 +731,29 @@
         },
         "provenance": {
           "$ref": "#/$defs/Provenance"
+        },
+        "prior_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prior Id"
+        },
+        "change": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComparisonChange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -765,7 +851,8 @@
         "not_assessed",
         "normal_summary",
         "context",
-        "quality"
+        "quality",
+        "comparison"
       ],
       "title": "SentenceKind",
       "type": "string"
