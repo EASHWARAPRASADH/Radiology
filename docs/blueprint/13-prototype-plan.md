@@ -124,7 +124,7 @@ Mean test AUROC across all 14 labels: **0.63** (967 images, 62 patients).
 | 2.1 Overlap / leakage audit | `radio dedupe-chestx-det`, `radio leak-check-chestx-det` | Done. Findings in §4.2 |
 | 2.2 Detector | `models/detector.py` (Faster R-CNN R50-FPN v2, BSD-3), `train/train_detector.py`, `configs/detector_chestxdet.yaml` | Done; results in §4.3 |
 | 2.2 Metrics | `eval/detection.py`: mAP@0.5 / @0.25, FROC at 0.25/0.5/1/2 FP per image (hit = IoU ≥ 0.25), pointing accuracy of true positives | Done (unit-tested on hand-computed cases) |
-| 2.3 Operating points | Per-class box-score threshold at 1 FP/image, chosen on the validation split | Done |
+| 2.3 Operating points | Per-class box-score threshold chosen on the validation split: 1 FP/image for focal findings, **0.25 FP/image for whole-image findings** (cardiomegaly, emphysema: at most one per image). Each class is gated at the same rate (`global_concepts`, `global_fppi`; see §6.3.2) | Done |
 | 2.5 Gating + fusion | Per-class gate on the **leak-reduced** test split (`radio regate-detector`): the **lower end of a 95% image-level bootstrap CI** (2,000 replicates) for FROC sensitivity at 1 FP/image must be ≥ 0.80, with ≥ 30 reference boxes (`gate_statistic: lower_bound`; `point` reproduces the original point-estimate gate). Only gated classes create `image_observed` findings with `validated=true` boxes | Done |
 | 2.5 Fusion rules (`pipeline/run.py`) | Validated box + classifier `absent` → `uncertain`. Classifier `present` without a validated box for a focal finding → capped at `uncertain`. Detector-only concepts (fracture, calcification): validated box → `present`, otherwise `not_assessed` (0.80 sensitivity cannot rule out). Concept the classifier cannot assess (no calibration data) but a gated detector boxed → `uncertain`, `image_observed`, never `present`. Added in Phase 3 (pipeline v0.3); without a box it stays `not_assessed` | Done, tested end to end |
 | 2.6 Activation-map audit | `eval/pointing.py`, `radio eval-pointing` | Done. Findings in §4.2 |
@@ -172,8 +172,8 @@ Measured 2026-11-25. Run `runs/chestxdet_frcnn_512` (not committed): Faster R-CN
 
 | Class | Test boxes (clean) | AP@0.25 all | AP@0.25 clean | Sens@1FP all | Sens@1FP clean | 95% CI clean | Sens@1FP leaky-only | Gate (lower bound) | Point-estimate gate |
 |---|---|---|---|---|---|---|---|---|---|
-| Cardiomegaly | 54 | 0.65 | 0.65 | 0.99 | 0.98 | 0.93–1.00 | 1.00 | **pass** | pass |
-| Emphysema | 50 | 0.31 | 0.34 | 0.92 | 0.90 | 0.79–0.98 | 1.00 | fail | pass |
+| Cardiomegaly | 54 | 0.65 | 0.65 | 0.99 | 0.98 | 0.93–1.00 | 1.00 | **pass**; re-gated at 0.25 FP/image (0.91, CI 0.81–0.98): still passes (§6.3.2) | pass |
+| Emphysema | 50 | 0.31 | 0.34 | 0.92 | 0.90 | 0.79–0.98 | 1.00 | fail; at 0.25 FP/image 0.66, CI 0.49–0.81 | pass |
 | Consolidation | 367 | 0.65 | 0.67 | 0.82 | 0.85 | 0.81–0.90 | 0.67 | **pass** (lower bound 0.807) | pass |
 | Atelectasis | 47 | 0.43 | 0.44 | 0.82 | 0.81 | 0.69–0.91 | 1.00 (4 boxes) | fail | pass |
 | Pleural effusion | 318 | 0.60 | 0.62 | 0.76 | 0.76 | 0.71–0.81 | 0.82 | fail | fail |
@@ -351,7 +351,29 @@ Same 416 images. Cardiomegaly is now reported. The rest of the report-level pict
 | 0.1 | 0.736 | 0.70 | 0.90 | 77 | 0.70 [0.59, 0.83] |
 | 0.05 | 0.862 | 0.50 | 0.97 | 39 | 0.63 [0.45, 0.76] |
 
-  At 0.25 FP/image, cardiomegaly still passes the lower-bound gate (0.81 ≥ 0.80) and flags half as many images. Global findings need their own operating point, chosen for image-level specificity; this is pending a decision. Emphysema, the other global class, fails the gate at any rate below 1 FP/image (lower bound 0.50 at 0.25).
+  At 0.25 FP/image, cardiomegaly still passes the lower-bound gate (0.81 ≥ 0.80) and flags half as many images. Emphysema, the other global class, fails the gate at any rate below 1 FP/image (lower bound 0.50 at 0.25).
+
+#### 6.3.2 Whole-image findings at 0.25 FP/image (decision 2026-11-25)
+
+Cardiomegaly and emphysema (`global_concepts`) now take their box threshold, and their gate, at 0.25 FP/image. Focal findings stay at 1 FP/image. `radio regate-detector` re-picks thresholds from the saved validation predictions, so this needed no retraining. Focal thresholds came out identical.
+
+| Concept | Gate rate | Threshold | Sensitivity at gate (95% CI), leak-reduced test | Gate |
+|---|---|---|---|---|
+| Cardiomegaly | 0.25 FP/image | 0.014 → 0.374 | 0.91 (0.81–0.98) | pass, just (lower bound 0.810) |
+| Emphysema | 0.25 FP/image | 0.073 → 0.282 | 0.66 (0.49–0.81) | fail |
+
+Report-level effect, same 416 images:
+
+| | v0.2 (no detector fallback) | v0.3 (fallback, 1 FP/image) | v0.3 + 0.25 FP/image for global findings |
+|---|---|---|---|
+| Validation pass / false "normal" / reports with a false "absent" | 416 / 0 / 13 | 416 / 0 / 13 | 416 / 0 / 13 |
+| Mean asserted (uncertain) findings per report | 5.5 (5.0) | 6.3 (5.75) | 5.9 (5.35) |
+| Finding precision / recall | 0.31 / 0.67 | 0.29 / 0.73 | 0.31 / 0.72 |
+| Cardiomegaly: radiologist-positive images flagged as possible | 0 of 52 | 52 of 52 | **49 of 52**; the other 3 are `not_assessed`, never `absent` |
+| Cardiomegaly: radiologist-negative images flagged | 0 of 364 | 274 of 364 | **110 of 364** (image specificity 0.70) |
+| Cardiomegaly: box claims hitting a reference box | — | 16% | 31% |
+
+Cardiomegaly is now reported for review on 38% of images instead of 78%, at the cost of three positives left unassessed and disclosed as such. It is still a `possible` finding for the radiologist, not a confident one. Its lower bound sits exactly on the gate (0.810), so it is the first class to recheck on new data, together with consolidation (0.807).
 
 ## Sources
 

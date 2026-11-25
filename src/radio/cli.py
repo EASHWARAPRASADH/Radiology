@@ -146,7 +146,7 @@ def regate(run_dir: Path, leak_file: Path = Path("data/chestx_det/test_patient_l
     res = regate_detector(run_dir, exclude)
     full = json.loads((run_dir / "eval_test.json").read_text())
     typer.echo(f"{'class':<20}{'boxes':>6}{'AP25 all':>9}{'AP25 clean':>11}{'S@1fp all':>10}{'S@1fp clean':>12}"
-               f"{'95% CI clean':>14}{'S@1fp leaky':>12}  gate")
+               f"{'S@1fp leaky':>12}{'gate FP/img':>12}{'S@gate':>7}{'95% CI':>11}  gate")
     for c, v in res["leak_reduced"].items():
         if c.startswith("_"):
             continue
@@ -154,11 +154,11 @@ def regate(run_dir: Path, leak_file: Path = Path("data/chestx_det/test_patient_l
         g = res["gates"][c]
         ci = f"{g['test_sens_ci_lower']:.2f}-{g['test_sens_ci_upper']:.2f}"
         typer.echo(f"{c:<20}{int(v['n_gt_boxes']):>6}{full[c]['ap25']:>9.3f}{v['ap25']:>11.3f}"
-                   f"{full[c]['sens@1.0fp']:>10.2f}{v['sens@1.0fp']:>12.2f}{ci:>14}{lk:>12.2f}  "
-                   f"{'pass' if c in res['validated'] else 'fail'}")
+                   f"{full[c]['sens@1.0fp']:>10.2f}{v['sens@1.0fp']:>12.2f}{lk:>12.2f}{g['gate_fppi']:>12}"
+                   f"{g['test_sens_at_gate_fppi']:>7.2f}{ci:>11}  {'pass' if c in res['validated'] else 'fail'}")
     typer.echo(f"summary all={full['_summary']} clean={res['leak_reduced']['_summary']}")
     g0 = next(iter(res["gates"].values()), {})
-    typer.echo(f"gate: {g0.get('gate_statistic')} of sens@{g0.get('gate_fppi')}FP >= {g0.get('min_sensitivity')} "
+    typer.echo(f"gate: {g0.get('gate_statistic')} of sens at the class's FP/image >= {g0.get('min_sensitivity')} "
                f"({g0.get('ci_method')}, level {g0.get('ci_level')}), >= {g0.get('min_lesions')} boxes")
     typer.echo(f"validated after re-gate (excluded {len(exclude)} leaky images): {res['validated']}")
 

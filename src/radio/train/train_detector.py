@@ -60,6 +60,17 @@ class DetTrainConfig:
     gate_statistic: str = "lower_bound"  # "lower_bound" (image-level bootstrap CI) or "point" (Phase-2 original)
     gate_ci_level: float = 0.95  # two-sided level; the gate uses the lower end
     gate_bootstrap: int = 2000
+    # Whole-image findings occur at most once per image, so 1 FP/image would flag nearly every image
+    # (cardiomegaly: image specificity 0.27). They get a stricter operating point, used for both the
+    # threshold (on validation) and the gate (on test).
+    global_concepts: list[str] = field(default_factory=lambda: ["cardiomegaly", "emphysema"])
+    global_fppi: float = 0.25
+
+    def fppi_for(self, concept: str) -> float:
+        return self.global_fppi if concept in self.global_concepts else self.target_fppi
+
+    def gate_fppi_for(self, concept: str) -> float:
+        return self.global_fppi if concept in self.global_concepts else self.gate_fppi
 
     @classmethod
     def from_yaml(cls, path: str | Path, overrides: dict | None = None) -> DetTrainConfig:
@@ -78,15 +89,18 @@ def gate_class(cfg: DetTrainConfig, preds: list[ImagePreds], gts: list[ImageGT],
     the lower end of the image-bootstrap CI for sensitivity at ``gate_fppi`` reaches ``gate_min_sensitivity``."""
     if cfg.gate_statistic not in ("lower_bound", "point"):
         raise ValueError(f"gate_statistic must be 'lower_bound' or 'point', got {cfg.gate_statistic!r}")
-    ci = froc_sensitivity_ci(preds, gts, concept, fppi=cfg.gate_fppi, n_boot=cfg.gate_bootstrap,
+    fppi = cfg.gate_fppi_for(concept)
+    ci = froc_sensitivity_ci(preds, gts, concept, fppi=fppi, n_boot=cfg.gate_bootstrap,
                              level=cfg.gate_ci_level, seed=cfg.seed)
-    sens = te.get(f"sens@{cfg.gate_fppi}fp", float("nan"))
+    sens = te.get(f"sens@{fppi}fp", float("nan"))
+    if np.isnan(sens) and ci["n_gt"]:
+        sens = ci["point"]  # gate rate not among the standard FROC rates
     stat = ci["lower"] if cfg.gate_statistic == "lower_bound" else sens
     validated = bool(te["n_gt_boxes"] >= cfg.gate_min_lesions and not np.isnan(stat)
                      and stat >= cfg.gate_min_sensitivity)
     gate = {"test_sens_at_gate_fppi": sens, "test_sens_ci_lower": ci["lower"], "test_sens_ci_upper": ci["upper"],
             "ci_level": cfg.gate_ci_level, "ci_method": f"image_bootstrap_percentile_n{ci['n_boot']}",
-            "gate_statistic": cfg.gate_statistic, "gate_fppi": cfg.gate_fppi,
+            "gate_statistic": cfg.gate_statistic, "gate_fppi": fppi,
             "test_n_gt_boxes": te["n_gt_boxes"], "test_ap25": te["ap25"],
             "min_sensitivity": cfg.gate_min_sensitivity, "min_lesions": cfg.gate_min_lesions}
     return validated, gate
@@ -186,9 +200,9 @@ def train_detector(cfg: DetTrainConfig) -> Path:
     ops = []
     for c in DET_CONCEPTS:
         s, t, _ = class_tp_arrays(vp, _gt(val), c)
-        thr = score_threshold_at_fppi(s, t, len(val), cfg.target_fppi)
+        thr = score_threshold_at_fppi(s, t, len(val), cfg.fppi_for(c))
         validated, gate = gate_class(cfg, tp_, test_gt, c, test_eval[c])
-        ops.append(ClassOperatingPoint(concept=c, box_score_threshold=thr, target_fppi=cfg.target_fppi,
+        ops.append(ClassOperatingPoint(concept=c, box_score_threshold=thr, target_fppi=cfg.fppi_for(c),
                                        validated=validated, gate={**gate, "test_split": "official"}))
     bundle = write_detector_bundle(out / "det_bundle", model.state_dict(), dcfg, ops, lin)
     print(f"[done] best val mAP@0.25={best:.3f} test mAP@0.25={test_eval['_summary']['map25']:.3f} "
@@ -197,12 +211,18 @@ def train_detector(cfg: DetTrainConfig) -> Path:
 
 
 def regate_detector(run_dir: str | Path, exclude: set[str], cfg: DetTrainConfig | None = None) -> dict:
-    """Re-score saved test predictions without ``exclude`` (e.g. patient-leaky images), rewrite per-class
-    ``validated`` flags in the detector bundle, and save both evaluations for comparison."""
+    """Re-pick each class's box threshold on the saved validation predictions (at ``cfg.fppi_for``), re-score saved
+    test predictions without ``exclude`` (e.g. patient-leaky images), rewrite per-class ``validated`` flags in the
+    detector bundle, and save both evaluations for comparison."""
     run = Path(run_dir)
     cfg = cfg or DetTrainConfig.from_yaml(run / "config.yaml")
     recs = {r.file_name: r for r in load_split(cfg.root, "test")}
     preds = json.loads((run / "preds_test.json").read_text())
+    train_recs = {r.file_name: r for r in load_split(cfg.root, "train")}
+    vpreds = json.loads((run / "preds_val.json").read_text())
+    val_p = [ImagePreds(np.asarray(p["boxes"], dtype=np.float32).reshape(-1, 4),
+                        np.asarray(p["scores"], dtype=np.float32), p["labels"]) for p in vpreds]
+    val_g = [ImageGT(train_recs[p["file_name"]].boxes, list(train_recs[p["file_name"]].labels)) for p in vpreds]
 
     def subset(keep):
         ps, gs = [], []
@@ -222,6 +242,9 @@ def regate_detector(run_dir: str | Path, exclude: set[str], cfg: DetTrainConfig 
     ops_path = run / "det_bundle" / "operating_points.json"
     ops = json.loads(ops_path.read_text())
     for o in ops:
+        sc, tp, _ = class_tp_arrays(val_p, val_g, o["concept"])
+        o["target_fppi"] = cfg.fppi_for(o["concept"])
+        o["box_score_threshold"] = score_threshold_at_fppi(sc, tp, len(val_g), o["target_fppi"])
         o["validated"], gate = gate_class(cfg, clean_p, clean_g, o["concept"], clean[o["concept"]])
         o["gate"] = {**gate, "test_split": "official_minus_known_patient_leak" if exclude else "official",
                      "excluded_images": len(exclude)}

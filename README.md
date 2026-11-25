@@ -17,7 +17,7 @@ Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/). On Apple Silicon
 
 ```bash
 uv sync                      # install
-uv run pytest                # 65 tests: schema, templates, report grounding, comparison, pipeline, API, exports, audit, detection
+uv run pytest                # 66 tests: schema, templates, report grounding, comparison, pipeline, API, exports, audit, detection
 uv run radio --help
 ```
 

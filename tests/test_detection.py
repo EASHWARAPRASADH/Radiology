@@ -270,3 +270,21 @@ def test_patient_leak_report_and_regate(fake_chestx_det, det_run, tmp_path):
     ops = json.loads((det_run / "det_bundle" / "operating_points.json").read_text())
     assert all(not o["validated"] and o["gate"]["test_split"] == "official_minus_known_patient_leak" for o in ops)
     assert all(o["gate"]["gate_statistic"] == "lower_bound" and "test_sens_ci_lower" in o["gate"] for o in ops)
+    # Whole-image findings get the stricter operating point for both threshold and gate.
+    by = {o["concept"]: o for o in ops}
+    assert by["cardiomegaly"]["target_fppi"] == by["cardiomegaly"]["gate"]["gate_fppi"] == cfg.global_fppi == 0.25
+    assert by["pleural_effusion"]["target_fppi"] == by["pleural_effusion"]["gate"]["gate_fppi"] == 1.0
+
+
+def test_global_findings_use_stricter_operating_point():
+    from radio.eval.detection import score_threshold_at_fppi
+    from radio.train.train_detector import DetTrainConfig
+
+    cfg = DetTrainConfig()
+    assert cfg.fppi_for("cardiomegaly") == cfg.gate_fppi_for("emphysema") == 0.25
+    assert cfg.fppi_for("nodule") == cfg.gate_fppi_for("nodule") == 1.0
+    # 8 images, one false positive per image at descending scores, then the true positive last:
+    # a stricter FP/image target gives a higher box-score threshold.
+    scores = np.array([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1])
+    tp = np.array([False] * 8 + [True])
+    assert score_threshold_at_fppi(scores, tp, 8, 0.25) > score_threshold_at_fppi(scores, tp, 8, 1.0)
