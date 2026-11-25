@@ -155,6 +155,11 @@ def train(cfg: TrainConfig) -> Path:
     out = Path(cfg.out_dir) / cfg.run_name
     out.mkdir(parents=True, exist_ok=True)
     (out / "lineage.json").write_text(json.dumps(lin, indent=2))
+    # Written first so a live monitor (radio monitor) knows the planned number of epochs.
+    (out / "config.yaml").write_text(yaml.safe_dump({"run_name": cfg.run_name, "out_dir": cfg.out_dir,
+                                                     "purpose": cfg.purpose,
+                                                     "data": vars(cfg.data), "model": vars(cfg.model),
+                                                     "optim": vars(cfg.optim)}))
 
     splits = load_nih(cfg.data.csv, cfg.data.images, split_dir=cfg.data.split_dir, val_frac=cfg.data.val_frac,
                       test_frac=cfg.data.test_frac, max_images=cfg.data.max_images, seed=cfg.optim.seed)
@@ -227,10 +232,6 @@ def train(cfg: TrainConfig) -> Path:
     model.load_state_dict(torch.load(out / "model.pt", map_location=device))
     (out / "model_config.json").write_text(json.dumps(mcfg.to_dict(), indent=2))
     (out / "history.json").write_text(json.dumps(history, indent=2))
-    (out / "config.yaml").write_text(yaml.safe_dump({"run_name": cfg.run_name, "out_dir": cfg.out_dir,
-                                                     "purpose": cfg.purpose,
-                                                     "data": vars(cfg.data), "model": vars(cfg.model),
-                                                     "optim": vars(cfg.optim)}))
 
     for name, loader, frame in (("val", va, splits.val), ("test", te, splits.test)):
         p = predict(model, loader, device, amp)

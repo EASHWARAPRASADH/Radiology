@@ -25,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 _EPOCH = re.compile(r"^\[epoch (\d+)\] (\{.*\})\s*$")
 _DONE = re.compile(r"^\[done\] (.*)$")
+_STEP = re.compile(r"epoch (\d+) step (\d+)/(\d+)")  # classifier trainer: "  epoch E step S/T loss L"
 
 
 def parse_log(text: str) -> tuple[list[dict], str | None, str | None]:
@@ -69,6 +70,17 @@ def status(run_dir: Path, log: Path | None) -> dict:
         in_epoch = max(0.0, elapsed - finished_secs)
         current_frac = min(0.99, in_epoch / avg)
         eta = max(0.0, (total_epochs - len(epochs)) * avg - in_epoch)
+    # Step-level progress (classifier logs print "epoch E step S/T"): finer progress and ETA within an epoch.
+    last_step = None
+    for m in _STEP.finditer(text[-20000:]):
+        last_step = (int(m.group(2)), int(m.group(3)))
+    if last_step and not done:
+        s_done, s_total = last_step
+        frac_total = s_done / max(1, s_total)
+        if total_epochs:
+            current_frac = min(0.99, frac_total * total_epochs - len(epochs))
+        if frac_total > 0.01:
+            eta = max(0.0, elapsed * (1 - frac_total) / frac_total)
     steps = []
     prog = run_dir / "progress.jsonl"
     if prog.exists():
@@ -77,7 +89,8 @@ def status(run_dir: Path, log: Path | None) -> dict:
     return {
         "run": run_dir.name, "config": cfg, "total_epochs": total_epochs, "epochs": epochs, "steps": steps,
         "elapsed_s": elapsed, "eta_s": eta, "current_epoch_fraction": current_frac, "done": done, "error": error,
-        "process_alive": _running(f"train-detector|radio train .*{run_dir.name}|radio train-detector"),
+        # Alive if a trainer process is running, or the log was written in the last 2 minutes.
+        "process_alive": _running("radio train") or bool(log and log.exists() and now - log.stat().st_mtime < 120),
         "checkpoint_mtime": ckpt.stat().st_mtime if ckpt.exists() else None,
     }
 
@@ -145,9 +158,8 @@ button:disabled{opacity:.5;cursor:wait}.wide{grid-column:1/-1}img{max-width:100%
 <div class="bar"><div id="pbar" style="width:0%"></div></div>
 <p class="muted" id="times"></p></section>
 <section class="card"><h2>Latest epoch</h2><div class="big" id="map">–</div><p class="muted" id="latest"></p></section>
-<section class="card"><h2>Validation mAP@0.25 and sensitivity at 1 FP/image</h2><svg id="c1"></svg>
-<div class="legend muted"><span><i class="sw" style="background:#5aa9ff"></i>mAP@0.25</span>
-<span><i class="sw" style="background:#3ecf8e"></i>Sens@1FP</span></div></section>
+<section class="card"><h2 id="c1title">Validation metric</h2><svg id="c1"></svg>
+<div class="legend muted" id="c1legend"></div></section>
 <section class="card"><h2>Training loss per epoch</h2><svg id="c2"></svg></section>
 <section class="card wide"><h2>Epochs</h2><table id="tbl"></table></section>
 <section class="card wide"><h2>Live predictions on validation images (best checkpoint, CPU)</h2>
@@ -184,6 +196,10 @@ async function tick(){
   if(e.length){const L=e[e.length-1];
     document.getElementById('map').textContent=(L.val_map25??L.val_mean_auroc??0).toFixed(3);
     document.getElementById('latest').textContent=('val_map25' in L)?`val mAP@0.25 · sens@1FP ${L['val_mean_sens@1fp'].toFixed(3)} · loss ${L.train_loss.toFixed(3)}`:`val mean AUROC · loss ${L.train_loss.toFixed(4)}`;}
+  const det=e.length?('val_map25' in e[0]):!!(s.config&&s.config.root);
+  document.getElementById('c1title').textContent=det?'Validation mAP@0.25 and sensitivity at 1 FP/image':'Validation mean AUROC';
+  document.getElementById('c1legend').innerHTML=det?'<span><i class="sw" style="background:#5aa9ff"></i>mAP@0.25</span><span><i class="sw" style="background:#3ecf8e"></i>Sens@1FP</span>':'<span><i class="sw" style="background:#5aa9ff"></i>mean AUROC (radiologist labels where available)</span>';
+  document.querySelector('#pv').closest('section').style.display=det?'':'none';
   const m=e.map(x=>x.val_map25??x.val_mean_auroc),sn=e.map(x=>x['val_mean_sens@1fp']).filter(v=>v!=null),lo=e.map(x=>x.train_loss);
   line(document.getElementById('c1'),[m,sn],['#5aa9ff','#3ecf8e'],0,Math.max(0.5,...m,...sn));
   line(document.getElementById('c2'),[lo],['#f5b84c'],Math.min(...lo,0)*0.9,Math.max(...lo,0.1)*1.1);

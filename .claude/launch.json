@@ -4,14 +4,34 @@
     {
       "name": "radio-api",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "radio", "serve", "runs/mixed_dinov2s_224/bundle", "--detector", "runs/chestxdet_frcnn_512/det_bundle", "--port", "8765", "--storage", "runs/api_demo_store"],
+      "runtimeArgs": [
+        "run",
+        "radio",
+        "serve",
+        "runs/mixed_dinov2s_224/bundle",
+        "--detector",
+        "runs/chestxdet_frcnn_512/det_bundle",
+        "--port",
+        "8765",
+        "--storage",
+        "runs/api_demo_store"
+      ],
       "port": 8765,
       "url": "http://127.0.0.1:8765"
     },
     {
       "name": "radio-train-monitor",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "radio", "monitor", "runs/chestxdet_frcnn_512", "--log", "/private/tmp/claude-501/-Users-eash-Desktop-Code-Radio/0bf301fc-6085-4792-8493-b61af685bdeb/tasks/bq6ejy1o4.output", "--port", "8766"],
+      "runtimeArgs": [
+        "run",
+        "radio",
+        "monitor",
+        "runs/mixed_dinov2s_448",
+        "--log",
+        "runs/train_mixed_448.log",
+        "--port",
+        "8766"
+      ],
       "port": 8766,
       "url": "http://127.0.0.1:8766"
     }
