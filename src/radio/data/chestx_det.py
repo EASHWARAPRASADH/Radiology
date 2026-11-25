@@ -44,7 +44,8 @@ def load_split(root: str | Path, split: str) -> list[DetRecord]:
         labs = [CHESTX_DET_LABEL_MAP[s] for s in a["syms"]]
         boxes = np.asarray(a["boxes"], dtype=np.float32).reshape(-1, 4)
         keep = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
-        out.append(DetRecord(a["file_name"], p, boxes[keep], [lab for lab, k in zip(labs, keep) if k], set(labs)))
+        kept = [lab for lab, k in zip(labs, keep, strict=True) if k]
+        out.append(DetRecord(a["file_name"], p, boxes[keep], kept, set(labs)))
     return out
 
 
@@ -93,7 +94,7 @@ class DetectionDataset(Dataset):
 
 
 def collate(batch):
-    return tuple(zip(*batch))
+    return tuple(zip(*batch, strict=True))
 
 
 def _thumb(path: Path, size: int = 32) -> np.ndarray:

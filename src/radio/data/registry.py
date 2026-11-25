@@ -84,7 +84,8 @@ WEIGHTS: dict[str, WeightsEntry] = {w.weights_id: w for w in [
        "ImageNet-1k", "https://pytorch.org/vision/stable/models.html"),
     _W("timm_imagenet", Verdict.conditional, "Apache-2.0 code; ImageNet terms may apply to weights",
        "ImageNet", "https://github.com/huggingface/pytorch-image-models"),
-    _W("rad_dino", Verdict.research_only, "MIT weights; card states research use", "MIMIC, CheXpert, PadChest, NIH, BRAX",
+    _W("rad_dino", Verdict.research_only, "MIT weights; card states research use",
+       "MIMIC, CheXpert, PadChest, NIH, BRAX",
        "https://huggingface.co/microsoft/rad-dino"),
 ]}
 

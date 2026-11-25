@@ -164,7 +164,62 @@ For effusion, this is higher than the 0.71 measured on NIH's NLP-mined labels, w
 
 ### 4.3 Detector results
 
-_Filled in after training completes; see `runs/chestxdet_frcnn_512/eval_test*.json`._
+Measured 2026-11-25. Run `runs/chestxdet_frcnn_512` (not committed): Faster R-CNN R50-FPN v2, ImageNet-initialised ResNet-50 backbone, 512 px, 8 epochs, batch 4, MPS on an M4 Pro, 2.0 h in total (about 13–17 min per epoch).
+
+- **Split:** ChestX-Det official train 3,025 images, divided into 2,581 train and 444 validation by an image-name hash. That split is **not** patient-disjoint either, which affects only threshold selection, not the test numbers. Test is 553 images, of which 442 are leak-reduced and 111 leaky-only.
+- **Training curve:** validation mAP@0.25 rose every epoch except one, from 0.105 to 0.308. Validation mean sensitivity at 1 FP/image went from 0.28 to 0.68. The model had not plateaued; more epochs or higher resolution would probably help.
+- **Operating points:** each class's box-score threshold is chosen on validation at 1 FP/image. The validation gate is then applied on the **leak-reduced** test split (hit = IoU ≥ 0.25 with a radiologist box).
+
+| Class | Test boxes (clean) | AP@0.25 all | AP@0.25 clean | Sens@1FP all | Sens@1FP clean | Sens@1FP leaky-only | Gate |
+|---|---|---|---|---|---|---|---|
+| Cardiomegaly | 54 | 0.65 | 0.65 | 0.99 | 0.98 | 1.00 | **pass** |
+| Emphysema | 50 | 0.31 | 0.34 | 0.92 | 0.90 | 1.00 | **pass** |
+| Consolidation | 367 | 0.65 | 0.67 | 0.82 | 0.85 | 0.67 | **pass** |
+| Atelectasis | 47 | 0.43 | 0.44 | 0.82 | 0.81 | 1.00 (4 boxes) | **pass** (marginal) |
+| Pleural effusion | 318 | 0.60 | 0.62 | 0.76 | 0.76 | 0.82 | fail |
+| Mass | 27 | 0.13 | 0.16 | 0.59 | 0.63 | 0.57 | fail (< 30 boxes) |
+| Pleural thickening | 89 | 0.17 | 0.18 | 0.63 | 0.60 | 0.81 | fail |
+| Fibrosis | 78 | 0.22 | 0.18 | 0.58 | 0.55 | 0.62 | fail |
+| Calcification | 51 | 0.22 | 0.24 | 0.54 | 0.53 | 0.69 | fail |
+| Fracture | 97 | 0.18 | 0.18 | 0.43 | 0.41 | 0.50 | fail |
+| Pneumothorax | 33 | 0.12 | 0.08 | 0.40 | 0.36 | 0.56 | fail |
+| Nodule | 219 | 0.16 | 0.17 | 0.38 | 0.37 | 0.36 | fail |
+| **Mean** | | **0.32** | **0.32** | **0.66** | **0.65** | **0.72** | 4 of 12 |
+
+Leak-reduced test overall: mAP@0.5 0.23, mAP@0.25 0.32, mean sensitivity at 1 FP/image 0.65. Among true-positive hits, the box centre falls inside the radiologist box 92–100% of the time, depending on class. Contrast this with the classifier's activation maps in §4.2, which score at chance.
+
+**How to read these numbers**
+
+- **The leak inflates scores where it can be measured.** On the 111 leaky-only images, mean sensitivity at 1 FP/image is 0.72, against 0.65 on the clean images. The per-class leaky numbers rest on very few boxes (atelectasis has 4), so they show the direction of the bias, not its size. The 414 test images that cannot be mapped to NIH patients may still leak, so even the "clean" numbers are an upper bound.
+- **The gate uses a point estimate, which is too lenient for a product.** Lower 95% Wilson bounds on sensitivity at 1 FP/image are: cardiomegaly 0.90, consolidation 0.81, emphysema 0.79, atelectasis 0.68. These treat boxes as independent; boxes cluster within images, so the true intervals are wider. Under a lower-bound gate, only cardiomegaly and consolidation would pass. Phase 3 should gate on the lower confidence bound with an image-level bootstrap (08 §0, §2).
+- **Effusion fails the localisation gate even though the classifier detects it well** (AUROC 0.81 against radiologist labels). The pipeline handles this as designed: effusion can still be `present` as `model_inferred`, but its boxes are shown with `validated=false` and never support an `image_observed` claim.
+- **Every detector output is `research_only=true`.** The backbone is torchvision's ImageNet ResNet-50, whose licence verdict is CONDITIONAL (`registry.py`, `NOTICE-DATA.md`). A product build must retrain from a cleared initialisation: DINOv2, or our own SSL weights.
+
+**End-to-end check.** Run on ChestX-Det test image `40749.png`, which is not in the leaky set. Radiologist boxes: effusion ×2 (right of image), consolidation (left), pleural thickening.
+
+```bash
+uv run radio infer runs/nih_dinov2s_224/bundle data/chestx_det/test/40749.png --view-position PA \
+    --detector runs/chestxdet_frcnn_512/det_bundle --json runs/e2e_40749.json
+```
+
+| Concept | Output | Comment |
+|---|---|---|
+| Pleural effusion | `present`, `model_inferred`, 5 boxes all `validated=false` | Correct finding. The top-scoring box barely overlaps the reference (IoU 0.09); the fourth box matches it (IoU 0.78). Effusion localisation is ungated, so all boxes are display-only |
+| Consolidation | `uncertain`, `image_observed`, validated box | The validated box covers the **effusion** region (IoU 0.78 with the reference effusion box, 0 with the reference consolidation box). The fusion rules cap it at `uncertain`, so it goes to the radiologist |
+| Atelectasis | `uncertain`, `image_observed`, validated box | This box matches the reference **consolidation** box (IoU 0.81); atelectasis and consolidation are visually confusable |
+| Cardiomegaly, emphysema | `not_assessed` | Validated detector classes, but no box above threshold. A detector negative is not validated to rule out, and the classifier lacks calibration data |
+| Fracture, calcification | `not_assessed` (`detector_not_validated`) | Detector-only classes that failed the gate |
+| Report | `validation_passed=True`, OOD score 20.5 (threshold 34.7) | "Pleural effusion. Possible consolidation, lung opacity, nodule, atelectasis and fibrosis…" |
+
+This one image shows why validated boxes still need radiologist review: a class-level gate does not make each box correct. The fusion rules kept both mislocalised claims at `uncertain` rather than `present`.
+
+**Phase-3 actions from this run:**
+
+1. Gate on the lower confidence bound (image-level bootstrap) instead of the point estimate.
+2. Retrain from a commercially clean initialisation.
+3. Train longer and at higher resolution; the curve was still rising.
+4. Get a patient-disjoint external box test set; the ChestX-Det test split cannot fully rule out leaks.
+5. Add cross-class box suppression or anatomy constraints for confusable pairs: consolidation/atelectasis, effusion/consolidation.
 
 ## 5. How to reproduce
 
