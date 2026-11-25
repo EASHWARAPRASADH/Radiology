@@ -36,6 +36,11 @@ class DataCfg:
     max_images: int | None = None
     val_frac: float = 0.1
     test_frac: float = 0.2
+    # Optional radiologist-labelled ChestX-Det train images mixed in (data/mixed.py)
+    chestx_det_root: str | None = None
+    chestx_det_matches: str | None = "data/chestx_det/nih_matches.json"
+    chestx_det_val_frac: float = 0.15
+    calibration_policy: str = "radiologist_where_available"
 
 
 @dataclass
@@ -153,6 +158,13 @@ def train(cfg: TrainConfig) -> Path:
 
     splits = load_nih(cfg.data.csv, cfg.data.images, split_dir=cfg.data.split_dir, val_frac=cfg.data.val_frac,
                       test_frac=cfg.data.test_frac, max_images=cfg.data.max_images, seed=cfg.optim.seed)
+    if cfg.data.chestx_det_root:
+        from radio.data.mixed import load_mixed, positives_per_concept
+
+        splits = load_mixed(splits, cfg.data.chestx_det_root, cfg.data.chestx_det_matches,
+                            val_frac=cfg.data.chestx_det_val_frac, calibration_policy=cfg.data.calibration_policy)
+        print(f"[data] mixed: {splits.info}")
+        print(f"[data] calibration positives: {positives_per_concept(splits.val, splits.labels)}")
     labels = splits.labels
     print(f"[data] train={len(splits.train)} val={len(splits.val)} test={len(splits.test)} "
           f"patients(train)={splits.train.patient_id.nunique()} device={device}")
@@ -225,7 +237,8 @@ def train(cfg: TrainConfig) -> Path:
         np.savez(out / f"preds_{name}.npz", **p, patient_id=frame["patient_id"].to_numpy()[p["idx"]],
                  image=frame["image"].to_numpy()[p["idx"]], labels=np.array(labels))
     n_ood = min(len(splits.train), o.max_ood_train_feats)
-    sub = Subset(NIHDataset(splits.train, labels, mcfg.img_size), list(range(n_ood)))
+    ood_idx = np.random.default_rng(o.seed).choice(len(splits.train), n_ood, replace=False).tolist()
+    sub = Subset(NIHDataset(splits.train, labels, mcfg.img_size), ood_idx)
     ptr = predict(model, DataLoader(sub, shuffle=False, **dl_kw), device, amp)
     np.savez(out / "feats_train.npz", feats=ptr["feats"])
     _log_mlflow(cfg, lin, history, out)

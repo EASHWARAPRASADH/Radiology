@@ -252,8 +252,12 @@ def report_eval(bundle: Path, detector: Path = typer.Option(None), det_root: Pat
 @app.command("eval-pointing")
 def eval_pointing(bundle: Path, det_root: Path = Path("data/chestx_det"), run_dir: Path = typer.Option(None),
                   matches: Path = Path("data/chestx_det/nih_matches.json"), split: str = "test",
-                  nih_test_list: Path = Path("data/nih/test_list.txt")):
-    """WP 2.6: classifier activation-map pointing game + image AUROC vs ChestX-Det radiologist labels."""
+                  nih_test_list: Path = Path("data/nih/test_list.txt"),
+                  leak_file: Path = Path("data/chestx_det/test_patient_leak.json")):
+    """WP 2.6: classifier activation-map pointing game + image AUROC vs ChestX-Det radiologist labels.
+
+    Excludes ChestX-Det copies of NIH images the classifier trained on, and test images that share a patient
+    with ChestX-Det train (relevant once the classifier is trained on ChestX-Det train, e.g. the mixed run)."""
     from radio.data.chestx_det import load_split
     from radio.eval.pointing import pointing_game
     from radio.pipeline.bundle import ModelBundle
@@ -266,6 +270,8 @@ def eval_pointing(bundle: Path, det_root: Path = Path("data/chestx_det"), run_di
         # NIH official test list). Copies of NIH test-list images were never seen and are kept.
         nih_test = set(nih_test_list.read_text().split()) if nih_test_list.exists() else set()
         exclude = {k for k, v in m.items() if v not in nih_test}
+    if split == "test" and leak_file.exists():
+        exclude |= set(json.loads(leak_file.read_text())["leaky_test_images"])
     res = pointing_game(b, load_split(det_root, split), exclude=exclude)
     target = (run_dir or bundle.parent) / f"pointing_{split}.json"
     target.write_text(json.dumps(res, indent=2))

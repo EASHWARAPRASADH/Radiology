@@ -49,6 +49,9 @@
   .err { color: var(--present); white-space: pre-wrap; }
   .stack > * + * { margin-top: 14px; }
   #spinner { display: none; color: var(--muted); }
+  details > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .sumline { margin: 6px 0; } .sumline b { display: inline-block; min-width: 92px; }
+  .big { font-size: 15px; }
 </style>
 </head>
 <body>
@@ -92,13 +95,16 @@
 
   <section class="stack">
     <div class="panel" id="resultPanel" hidden>
-      <h2>Result</h2>
+      <h2>Summary</h2>
       <div class="meta" id="meta"></div>
-      <pre class="report" id="report"></pre>
+      <div id="summary"></div>
+      <details style="margin-top:12px"><summary>Full draft report</summary><pre class="report" id="report" style="margin-top:8px"></pre></details>
     </div>
     <div class="panel" id="findingsPanel" hidden>
-      <h2>Findings (structured)</h2>
+      <h2>Findings</h2>
       <table><thead><tr><th>Finding</th><th>Status</th><th>Source</th><th>Detail</th></tr></thead><tbody id="findings"></tbody></table>
+      <details id="moreFindings" style="margin-top:10px"><summary id="moreSummary"></summary>
+        <table style="margin-top:6px"><tbody id="findingsMore"></tbody></table></details>
     </div>
     <div class="panel" id="reviewPanel" hidden>
       <h2>Radiologist review</h2>
@@ -181,17 +187,37 @@ async function render() {
   $("report").textContent = await (await api(`/v1/studies/${r.result_id}/report`)).text();
   $("resultPanel").hidden = false;
 
-  const rows = [...r.findings].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
-  $("findings").innerHTML = rows.map(f => {
+  const named = (f) => esc(f.display) + (f.laterality && !["unknown", "not_applicable"].includes(f.laterality) ? ` (${esc(f.laterality)})` : "");
+  const by = (st) => r.findings.filter(f => f.status === st);
+  const prob = (f) => f.evidence ? f.evidence.calibrated_probability : 0;
+  const present = by("present"), possible = by("uncertain").sort((a, b) => prob(b) - prob(a));
+  const withP = (f) => `${named(f)}${f.evidence ? ` <span class="muted">${Math.round(prob(f) * 100)}%</span>` : ""}`;
+  if (r.abstention) {
+    $("summary").innerHTML = `<p class="big">The AI did not analyse this image: <b>${esc(r.abstention.reason.replaceAll("_", " "))}</b>. ${esc(r.abstention.detail || "")}</p>`;
+  } else {
+    $("summary").innerHTML =
+      `<div class="sumline big"><b class="st-present">Detected</b> ${present.length ? present.map(named).join(", ") : '<span class="muted">nothing definite</span>'}</div>` +
+      `<div class="sumline big"><b class="st-uncertain">Possible</b> ${possible.length ? possible.map(withP).join(", ") : '<span class="muted">none</span>'}</div>` +
+      `<div class="sumline muted">${by("absent").length} ruled out by the AI · ${by("not_assessed").length} not assessed (see below). ` +
+      `"Possible" means the AI could not decide; a radiologist must check each one. Sorted by AI probability.</div>`;
+  }
+
+  const row = (f) => {
     const side = f.laterality && !["unknown", "not_applicable"].includes(f.laterality) ? ` (${f.laterality})` : "";
     let detail = "";
     if (f.status === "not_assessed") detail = esc((f.not_assessed_reason || "").replaceAll("_", " "));
     else if (f.evidence) detail = `p=${f.evidence.calibrated_probability.toFixed(2)}`;
     if (f.uncertainty_reasons?.length) detail += ` · ${esc(f.uncertainty_reasons.join(", ").replaceAll("_", " "))}`;
     if (f.critical) detail += ` · <b>critical candidate</b>`;
-    return `<tr><td>${esc(f.display)}${esc(side)}</td><td><span class="chip st-${f.status}">${f.status.replace("_", " ")}</span></td>
+    return `<tr><td>${esc(f.display)}${esc(side)}</td><td><span class="chip st-${f.status}">${f.status === "uncertain" ? "possible" : f.status.replace("_", " ")}</span></td>
             <td class="muted">${f.status === "not_assessed" ? "—" : esc(PROV[f.provenance] || f.provenance)}</td><td class="muted">${detail}</td></tr>`;
-  }).join("");
+  };
+  const sorted = [...r.findings].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+  const main = sorted.filter(f => ["present", "uncertain"].includes(f.status));
+  const rest = sorted.filter(f => !["present", "uncertain"].includes(f.status));
+  $("findings").innerHTML = main.length ? main.map(row).join("") : `<tr><td colspan="4" class="muted">No findings flagged.</td></tr>`;
+  $("findingsMore").innerHTML = rest.map(row).join("");
+  $("moreSummary").textContent = `Show ${rest.length} ruled-out or not-assessed findings`;
   $("findingsPanel").hidden = false;
 
   const final = ["approved", "rejected"].includes(r.review_status);

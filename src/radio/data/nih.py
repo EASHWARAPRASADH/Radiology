@@ -114,7 +114,11 @@ class NIHDataset(Dataset):
         self.size = img_size
         self.aug = train_augment() if augment else None
         self.y = torch.tensor(self.df[labels].to_numpy(dtype=np.float32))
-        self.mask = torch.ones_like(self.y)
+        mcols = [f"m_{lab}" for lab in labels]
+        if all(c in self.df.columns for c in mcols):  # mixed sources: per-row label masks (data/mixed.py)
+            self.mask = torch.tensor(self.df[mcols].to_numpy(dtype=np.float32))
+        else:
+            self.mask = torch.ones_like(self.y)
 
     def __len__(self) -> int:
         return len(self.df)

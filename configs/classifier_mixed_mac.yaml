@@ -1,0 +1,34 @@
+# Phase-1 classifier retrained with radiologist labels: NIH CXR14 batch 1 (NLP labels) + ChestX-Det train
+# (radiologist labels for 10 of 14 concepts). Calibration uses radiologist labels wherever ChestX-Det has them.
+# Same encoder, resolution and schedule as classifier_nih_mac.yaml so the comparison isolates the labels.
+run_name: mixed_dinov2s_224
+purpose: research
+data:
+  dataset_ids: [nih_cxr14, chestx_det]
+  csv: data/nih/Data_Entry_2017.csv
+  images: data/nih/images
+  split_dir: data/nih
+  max_images: null
+  val_frac: 0.25
+  chestx_det_root: data/chestx_det
+  chestx_det_matches: data/chestx_det/nih_matches.json
+  chestx_det_val_frac: 0.2         # 20% gives >= 30 calibration positives for emphysema
+  calibration_policy: radiologist_where_available
+model:
+  encoder: vit_small_patch14_dinov2.lvd142m
+  pretrained: true
+  img_size: 224
+  dropout: 0.1
+optim:
+  epochs: 8
+  batch_size: 32
+  lr_head: 1.0e-3
+  lr_encoder: 3.0e-5
+  weight_decay: 0.05
+  warmup_frac: 0.05
+  loss: bce
+  num_workers: 6
+  amp: true
+  device: auto
+  seed: 0
+  max_ood_train_feats: 3000

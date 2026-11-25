@@ -375,6 +375,62 @@ Report-level effect, same 416 images:
 
 Cardiomegaly is now reported for review on 38% of images instead of 78%, at the cost of three positives left unassessed and disclosed as such. It is still a `possible` finding for the radiologist, not a confident one. Its lower bound sits exactly on the gate (0.810), so it is the first class to recheck on new data, together with consolidation (0.807).
 
+### 6.4 Classifier retrained with radiologist labels (2026-11-25)
+
+The report results above pointed to the perception model as the bottleneck, so the classifier was retrained on NIH batch 1 (NLP labels) plus ChestX-Det train (radiologist labels). Run `mixed_dinov2s_224`, config `configs/classifier_mixed_mac.yaml`, code `data/mixed.py`. Encoder, resolution (224 px), schedule (8 epochs) and seed match the Phase-1 run, so the comparison isolates the data and labels. Training took 12 min on MPS.
+
+**How the two datasets are merged.** Both are NIH images, so the merge has to avoid duplicates and leaks:
+
+- **Duplicates:** 673 ChestX-Det images are pixel copies of local NIH images. Each keeps its radiologist labels and inherits its NIH patient and split, and the NIH copy is removed.
+- **NIH test patients:** 138 ChestX-Det images belong to NIH test patients and are dropped.
+- **Unmapped images:** these are split by file-name hash, with 20% going to validation. That gives at least 30 calibration positives for emphysema.
+- **Label masks:** ChestX-Det annotates 10 of the 14 NIH concepts. The other four are masked out on ChestX-Det rows, unless the NIH copy supplies them.
+- **Calibration policy `radiologist_where_available`:** for the 10 shared concepts, temperature scaling and conformal thresholds use radiologist labels only. NIH validation rows are masked out for those concepts.
+
+**Calibration.** 9 of 14 concepts now have enough radiologist-labelled calibration data, against 6 before. Newly assessed: cardiomegaly, emphysema, pleural thickening. Still not assessed: mass (19 positives), pneumothorax (19), pneumonia, edema, hernia.
+
+**Image-level AUROC against radiologist labels.** Same 416 ChestX-Det test images as §6.3: known patient leaks and NIH copies the classifier trained on are excluded.
+
+| Concept | Phase-1 classifier | Retrained | Activation-map hit rate (chance), retrained |
+|---|---|---|---|
+| Pleural effusion | 0.819 | **0.919** | 0.36 (0.11); was 0.02 |
+| Cardiomegaly | 0.668 | **0.890** | 0.19 (0.10) |
+| Consolidation | 0.766 | **0.842** | 0.59 (0.13) |
+| Pleural thickening | 0.665 | **0.826** | 0.10 (0.03) |
+| Emphysema | 0.704 | **0.816** | 0.67 (0.30) |
+| Pneumothorax | 0.646 | **0.799** | 0.04 (0.04) |
+| Atelectasis | 0.588 | **0.762** | 0.14 (0.04) |
+| Mass | 0.522 | **0.750** | 0.20 (0.03) |
+| Fibrosis | 0.663 | 0.691 | 0.32 (0.10) |
+| Nodule | 0.499 | 0.662 | 0.34 (0.10) |
+| **Mean pointing hit rate** | 0.11 (chance 0.10) | **0.29** (chance 0.10) | |
+
+How to read the AUROC gains:
+
+- **Patient overlap does not seem to drive them.** The remaining 414 unmapped ChestX-Det test images could still share patients with ChestX-Det train, which the retrained model saw. Including the 111 *known* overlapping images barely moves AUROC (effusion 0.910 with them against 0.919 without), which suggests patient overlap does not drive the gain.
+- **On NIH's own test set (NLP labels, 62 patients) mean AUROC rose from 0.63 to 0.69.** Calibration there is worse, though: ECE is 0.23 for effusion and 0.31 for consolidation. ChestX-Det contains only abnormal images, so thresholds and temperatures fitted on it are miscalibrated for NIH's mostly normal population. **Calibration must be refitted on each deployment site's own population** (09 §7, PCCP).
+- **Activation maps localise better but still unreliably.** The pointing hit rate rose from chance to about 3× chance, so the maps now carry some localisation signal. They stay `validated=false` and display-only (R27).
+
+**Report-level effect.** Same pipeline: detector v0.3 with 0.25 FP/image for global findings, templates, validator.
+
+| | Phase-1 classifier | Retrained |
+|---|---|---|
+| Validation pass / false "normal" | 416 of 416 / 0 | 416 of 416 / 0 |
+| Effusion on radiologist-positive images: present / possible / **absent** | 0.23 / 0.74 / **0.03** | **0.59** / 0.36 / **0.05** |
+| Effusion on radiologist-negative images: present / possible / absent | 0.00 / 0.77 / 0.23 | 0.03 / 0.39 / **0.58** |
+| Consolidation on radiologist-negative images called absent | 0.15 | **0.33** |
+| Precision of `present` calls: effusion, consolidation, nodule, atelectasis | 0.98, 0.90, 0.26, 0.15 | 0.95, 0.90, **0.73**, **0.41** |
+| Concepts assessed by the classifier | 6 | 9 |
+| Mean possible findings per report | 5.35 | 6.2 |
+| Reports with a false "absent" | 13 | 23 |
+
+- **Decisions got sharper where it matters.** For effusion, the share of images left "possible" halved on both positive and negative images. Precision of `present` calls rose for nodule and atelectasis.
+- **More false "absent" calls, but within design.** For effusion, 5% of radiologist-positive images are now called absent, exactly the α_FN = 0.05 the thresholds target, against 3% before. The old model's very low `t_absent` (0.009) kept misses rare only by leaving almost everything "possible".
+- **More "possible" findings per report.** The count rose because three more concepts are now assessed, and on this abnormality-only test set they mostly land in the indeterminate band.
+- **Relaxing the false-positive limit does not reduce clutter.** Offline, with the same calibrated probabilities, raising α_FP from 0.05 to 0.10 / 0.20 / 0.30 lowers mean "possible" findings from 6.2 to 5.4 / 4.2 / 3.2. But precision of `present` calls falls from 0.73 to 0.60 / 0.50 / 0.42, and the total mentioned per report stays at 7.3. α_FP stays 0.05. Fewer, more correct findings per report need a stronger model: full NIH at 448 px plus more radiologist-labelled data (14, R28).
+
+The demo server (`.claude/launch.json`, `radio-api`) now serves the retrained classifier. The review page leads with a short summary, ranks "possible" findings by probability, and folds ruled-out and not-assessed findings away.
+
 ## Sources
 
 - NIH ChestX-ray14 share and terms: https://nihcc.app.box.com/v/ChestXray-NIHCC

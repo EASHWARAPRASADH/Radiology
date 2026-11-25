@@ -17,7 +17,7 @@ Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/). On Apple Silicon
 
 ```bash
 uv sync                      # install
-uv run pytest                # 66 tests: schema, templates, report grounding, comparison, pipeline, API, exports, audit, detection
+uv run pytest                # 67 tests: schema, templates, report grounding, comparison, pipeline, API, exports, audit, detection
 uv run radio --help
 ```
 
@@ -69,12 +69,20 @@ uv run radio --help
    uv run radio serve runs/nih_dinov2s_smoke/bundle
    ```
 
+### Retrained classifier (NIH + ChestX-Det radiologist labels)
+
+```bash
+uv run radio train configs/classifier_mixed_mac.yaml       # ~12 min on an M4 Pro
+uv run radio calibrate runs/mixed_dinov2s_224              # calibrated on radiologist labels where available
+uv run radio eval-pointing runs/mixed_dinov2s_224/bundle   # AUROC vs radiologist labels
+```
+
 ### Try it in the browser
 
 Start the API with the classifier and the detector, then open http://127.0.0.1:8765/:
 
 ```bash
-uv run radio serve runs/nih_dinov2s_224/bundle --detector runs/chestxdet_frcnn_512/det_bundle --port 8765
+uv run radio serve runs/mixed_dinov2s_224/bundle --detector runs/chestxdet_frcnn_512/det_bundle --port 8765
 ```
 
 - **Upload:** drop in a chest X-ray as DICOM, PNG or JPEG. For PNG and JPEG, pick the view, since they carry no header.
