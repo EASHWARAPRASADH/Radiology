@@ -10,61 +10,19 @@ import io
 import math
 
 import numpy as np
-import pandas as pd
 import pydicom
 import pytest
 import torch
 from fastapi.testclient import TestClient
-from PIL import Image
 
 from radio.audit.log import AuditLog
 from radio.data.nih import load_nih
 from radio.data.registry import LicenceGateError, lineage
 from radio.ingest.synthetic import phantom, write_dx_dicom
 from radio.models.classifier import ClassifierConfig, build_classifier
-from radio.pipeline.bundle import ModelBundle, build_bundle
+from radio.pipeline.bundle import ModelBundle
 from radio.pipeline.run import AnalysisPipeline
 from radio.schema.findings import FindingStatus, ReviewStatus
-from radio.train.train_classifier import DataCfg, ModelCfg, OptimCfg, TrainConfig, train
-
-NIH_COLS = ["Image Index", "Finding Labels", "Follow-up #", "Patient ID", "Patient Age", "Patient Gender",
-            "View Position"]
-
-
-@pytest.fixture(scope="session")
-def fake_nih(tmp_path_factory):
-    root = tmp_path_factory.mktemp("nih")
-    img_dir = root / "images" / "images_001" / "images"
-    img_dir.mkdir(parents=True)
-    rng = np.random.default_rng(0)
-    rows = []
-    for i in range(160):
-        arr = phantom(size=256, seed=i).astype(np.float32) / 4095
-        labs = []
-        if rng.random() < 0.4:
-            arr[180:, :] = np.clip(arr[180:, :] + 0.4, 0, 1)
-            labs.append("Effusion")
-        if rng.random() < 0.3:
-            labs.append("Infiltration")
-        name = f"{i:08d}_000.png"
-        Image.fromarray((arr * 255).astype(np.uint8)).save(img_dir / name)
-        rows.append([name, "|".join(labs) or "No Finding", 0, str(i // 2), 50, "F", "PA"])
-    pd.DataFrame(rows, columns=NIH_COLS).to_csv(root / "Data_Entry_2017.csv", index=False)
-    return root
-
-
-@pytest.fixture(scope="session")
-def bundle_dir(fake_nih, tmp_path_factory):
-    out = tmp_path_factory.mktemp("runs")
-    cfg = TrainConfig(
-        run_name="t", out_dir=str(out),
-        data=DataCfg(dataset_ids=["synthetic"], csv=str(fake_nih / "Data_Entry_2017.csv"),
-                     images=str(fake_nih / "images"), split_dir=None, val_frac=0.3, test_frac=0.2),
-        model=ModelCfg(encoder="resnet18", pretrained=False, img_size=64),
-        optim=OptimCfg(epochs=1, batch_size=16, num_workers=0, device="cpu", amp=False, max_ood_train_feats=64),
-    )
-    run = train(cfg)
-    return build_bundle(run, min_positives=3, min_negatives=3)
 
 
 def test_patient_disjoint_splits(fake_nih):

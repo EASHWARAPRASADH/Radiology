@@ -101,15 +101,107 @@ def evaluate(run_dir: Path, split: str = "test", n_boot: int = 200):
     typer.echo("sens* = sensitivity counting 'uncertain' (deferred to radiologist) as flagged. Not a clinical claim.")
 
 
+@app.command("train-detector")
+def train_detector_cmd(config: Path, set_: list[str] = typer.Option([], "--set", help="e.g. --set epochs=1")):
+    """Phase 2: train the Faster R-CNN detector on ChestX-Det, pick operating points, gate per class."""
+    import yaml
+
+    from radio.train.train_detector import DetTrainConfig, train_detector
+
+    overrides = {k: yaml.safe_load(v) for k, v in (s.split("=", 1) for s in set_)}
+    train_detector(DetTrainConfig.from_yaml(config, overrides))
+
+
+@app.command("dedupe-chestx-det")
+def dedupe_chestx_det(det_root: Path = Path("data/chestx_det"), nih_images: Path = Path("data/nih/images"),
+                      out: Path = Path("data/chestx_det/nih_matches.json")):
+    """Find ChestX-Det images that are copies of local NIH CXR14 images (fingerprint match)."""
+    from radio.data.chestx_det import fingerprint_matches
+
+    det = sorted(det_root.glob("*/*.png"))
+    nih = sorted(nih_images.rglob("*.png"))
+    m = fingerprint_matches(det, nih)
+    out.write_text(json.dumps(m, indent=2))
+    typer.echo(f"{len(m)} of {len(det)} ChestX-Det images match one of {len(nih)} local NIH images -> {out}")
+
+
+@app.command("leak-check-chestx-det")
+def leak_check(det_root: Path = Path("data/chestx_det"), matches: Path = Path("data/chestx_det/nih_matches.json"),
+               nih_csv: Path = Path("data/nih/Data_Entry_2017.csv"),
+               out: Path = Path("data/chestx_det/test_patient_leak.json")):
+    """List ChestX-Det test images whose NIH patient also appears in ChestX-Det train."""
+    from radio.data.chestx_det import patient_leak_report
+
+    rep = patient_leak_report(det_root, json.loads(matches.read_text()), nih_csv)
+    out.write_text(json.dumps(rep, indent=2))
+    typer.echo({k: v for k, v in rep.items() if k != "leaky_test_images"})
+
+
+@app.command("regate-detector")
+def regate(run_dir: Path, leak_file: Path = Path("data/chestx_det/test_patient_leak.json")):
+    """Re-score the detector on the test split minus known patient-leaky images and re-apply the Phase-2 gate."""
+    from radio.train.train_detector import regate_detector
+
+    exclude = set(json.loads(leak_file.read_text())["leaky_test_images"]) if leak_file.exists() else set()
+    res = regate_detector(run_dir, exclude)
+    full = json.loads((run_dir / "eval_test.json").read_text())
+    typer.echo(f"{'class':<20}{'boxes':>6}{'AP25 all':>9}{'AP25 clean':>11}{'S@1fp all':>10}{'S@1fp clean':>12}"
+               f"{'S@1fp leaky':>12}")
+    for c, v in res["leak_reduced"].items():
+        if c.startswith("_"):
+            continue
+        lk = res["leaky_only"][c]["sens@1.0fp"] if res["leaky_only"] else float("nan")
+        typer.echo(f"{c:<20}{int(v['n_gt_boxes']):>6}{full[c]['ap25']:>9.3f}{v['ap25']:>11.3f}"
+                   f"{full[c]['sens@1.0fp']:>10.2f}{v['sens@1.0fp']:>12.2f}{lk:>12.2f}")
+    typer.echo(f"summary all={full['_summary']} clean={res['leak_reduced']['_summary']}")
+    typer.echo(f"validated after re-gate (excluded {len(exclude)} leaky images): {res['validated']}")
+
+
+@app.command("eval-pointing")
+def eval_pointing(bundle: Path, det_root: Path = Path("data/chestx_det"), run_dir: Path = typer.Option(None),
+                  matches: Path = Path("data/chestx_det/nih_matches.json"), split: str = "test",
+                  nih_test_list: Path = Path("data/nih/test_list.txt")):
+    """WP 2.6: classifier activation-map pointing game + image AUROC vs ChestX-Det radiologist labels."""
+    from radio.data.chestx_det import load_split
+    from radio.eval.pointing import pointing_game
+    from radio.pipeline.bundle import ModelBundle
+
+    b = ModelBundle.load(bundle)
+    exclude: set[str] = set()
+    if matches.exists():
+        m = json.loads(matches.read_text())
+        # Exclude ChestX-Det copies of NIH images the classifier trained/calibrated on (everything outside the
+        # NIH official test list). Copies of NIH test-list images were never seen and are kept.
+        nih_test = set(nih_test_list.read_text().split()) if nih_test_list.exists() else set()
+        exclude = {k for k, v in m.items() if v not in nih_test}
+    res = pointing_game(b, load_split(det_root, split), exclude=exclude)
+    target = (run_dir or bundle.parent) / f"pointing_{split}.json"
+    target.write_text(json.dumps(res, indent=2))
+    typer.echo(f"{'label':<20}{'lesion imgs':>12}{'hit rate':>10}{'chance':>9}{'AUROC(rad)':>12}{'pos':>6}")
+    for k, v in res.items():
+        if k.startswith("_"):
+            continue
+        typer.echo(f"{k:<20}{v['n_lesion_images']:>12}{v['pointing_hit_rate']:>10.2f}{v['chance_hit_rate']:>9.2f}"
+                   f"{v['image_auroc_vs_radiologist']:>12.3f}{v['n_pos_images']:>6}")
+    typer.echo(json.dumps(res["_summary"]))
+    typer.echo(target)
+
+
 @app.command()
 def infer(bundle: Path, image: Path, indication: str = typer.Option(None), view_position: str = typer.Option(None),
-          json_out: Path = typer.Option(None, "--json"), heatmap_dir: Path = typer.Option(None)):
+          json_out: Path = typer.Option(None, "--json"), heatmap_dir: Path = typer.Option(None),
+          detector: Path = typer.Option(None, help="Detector bundle dir (Phase 2)")):
     """Analyse one image and print the draft report."""
     from radio.pipeline.bundle import ModelBundle
     from radio.pipeline.run import AnalysisPipeline
     from radio.schema.findings import ClinicalContext
 
-    pipe = AnalysisPipeline(ModelBundle.load(bundle))
+    det = None
+    if detector:
+        from radio.models.detector import DetectorBundle
+
+        det = DetectorBundle(detector)
+    pipe = AnalysisPipeline(ModelBundle.load(bundle), detector=det)
     out = pipe.analyze(image, context=ClinicalContext(indication=indication), view_position=view_position)
     r = out.result
     if json_out:
@@ -130,13 +222,25 @@ def infer(bundle: Path, image: Path, indication: str = typer.Option(None), view_
 
 
 @app.command()
-def serve(bundle: Path, host: str = "127.0.0.1", port: int = 8000, storage: Path = Path("runs/api_store")):
+def monitor(run_dir: Path, log: Path = typer.Option(None, help="Training stdout log to parse"),
+            host: str = "127.0.0.1", port: int = 8766):
+    """Live training dashboard (epoch curves, ETA, prediction previews) for a run directory."""
+    import uvicorn
+
+    from radio.monitor import create_monitor
+
+    uvicorn.run(create_monitor(run_dir, log), host=host, port=port, log_level="warning")
+
+
+@app.command()
+def serve(bundle: Path, host: str = "127.0.0.1", port: int = 8000, storage: Path = Path("runs/api_store"),
+          detector: Path = typer.Option(None, help="Detector bundle dir (Phase 2)")):
     """Run the inference/review API."""
     import uvicorn
 
     from radio.api.app import create_app
 
-    uvicorn.run(create_app(bundle, storage_dir=storage), host=host, port=port)
+    uvicorn.run(create_app(bundle, storage_dir=storage, detector_dir=detector), host=host, port=port)
 
 
 if __name__ == "__main__":

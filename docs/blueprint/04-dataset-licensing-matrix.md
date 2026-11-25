@@ -31,7 +31,7 @@ Columns:
 | Dataset | Verdict | Commercial training | Research / benchmark | Redistribution | Derivative weights | Attribution | Access path | Cost |
 |---|---|---|---|---|---|---|---|---|
 | NIH ChestX-ray14 | **OK** | Yes ("usage … unrestricted") | Yes | Not prohibited in FAQ (don't redistribute anyway; link to source) | Not addressed (unrestricted) | Link NIH site, acknowledge NIH Clinical Center, cite Wang et al. CVPR 2017 | Open download (NIH Box) | Free |
-| ChestX-Det | **OK** | Yes (Apache-2.0 annotations; NIH images) | Yes | Apache-2.0 for annotations | Not addressed | Apache NOTICE + NIH attribution | GitHub | Free |
+| ChestX-Det | **OK** | Yes (Apache-2.0 annotations; NIH images) | Yes | Apache-2.0 for annotations | Not addressed | Apache NOTICE + NIH attribution | GitHub (annotations); images from the dataset owner's HTTP host, validated before extraction (`scripts/fetch_chestx_det.sh`) | Free |
 | SIIM-ACR Pneumothorax | **OK** (no redistribution) | Yes ("Any purpose, including commercial use") | Yes | **No** (Kaggle 7.B) | Not addressed | Per rules page | Kaggle account + accept rules (user action) | Free |
 | RSNA Pneumonia 2018 | **CONDITIONAL** | Terms PDF says yes; dataset sheet says "Non-commercial", so **get RSNA in writing** | Yes | Per terms (unverified detail) | Not addressed | RSNA attribution per terms PDF | RSNA / Kaggle | Free |
 | MIDRC | **CONDITIONAL → OK** | Yes, under the **commercial** DUA | Yes (non-commercial DUA) | No | Per DUA (to review) | Per DUA | MIDRC application, commercial agreement | Free ("data access is free") |

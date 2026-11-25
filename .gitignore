@@ -3,9 +3,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-data/
-runs/
-mlruns/
+/data/
+/runs/
+/mlruns/
 *.pt
 *.ckpt
 .DS_Store

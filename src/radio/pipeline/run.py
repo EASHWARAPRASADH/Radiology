@@ -82,17 +82,42 @@ def _bbox_from_map(m: np.ndarray, lb: Letterbox, rel: float = 0.5) -> tuple[Boun
     return BoundingBox(x_min=x0, y_min=y0, x_max=x1, y_max=y1), norm
 
 
+def merge_detections(dets, detector) -> dict[str, list[Localization]]:
+    """Detector boxes at/above each class's operating point -> Localizations (validated only if the class passed
+    the held-out gate). Highest score first."""
+    out: dict[str, list[Localization]] = {}
+    for d in sorted(dets, key=lambda d: -d.score):
+        op = detector.operating_points.get(d.concept)
+        if op is None or d.score < op.box_score_threshold:
+            continue
+        x0, y0, x1, y1 = d.box_xyxy
+        if x1 <= x0 or y1 <= y0:
+            continue
+        out.setdefault(d.concept, []).append(Localization(
+            method=LocalizationMethod.detector, bbox=BoundingBox(x_min=max(0.0, x0), y_min=max(0.0, y0),
+                                                                 x_max=x1, y_max=y1),
+            score=float(min(max(d.score, 0.0), 1.0)), validated=op.validated))
+    return out
+
+
+GLOBAL_FINDINGS = {"cardiomegaly", "emphysema", "edema"}  # not expected to have a focal box
+
+
 class AnalysisPipeline:
     def __init__(self, bundle: ModelBundle, device: torch.device | str = "cpu",
-                 quality_cfg: QualityConfig = QualityConfig(), audit: AuditLog | None = None):
+                 quality_cfg: QualityConfig = QualityConfig(), audit: AuditLog | None = None, detector=None):
         self.bundle = bundle
         self.device = torch.device(device)
         self.quality_cfg = quality_cfg
         self.audit = audit
+        self.detector = detector  # radio.models.detector.DetectorBundle | None
 
     def _versions(self) -> dict[str, str]:
-        return {self.bundle.model_id: self.bundle.model_version, "report_generator": GENERATOR_ID,
-                "pipeline": "radio.pipeline-v0.1"}
+        v = {self.bundle.model_id: self.bundle.model_version, "report_generator": GENERATOR_ID,
+             "pipeline": "radio.pipeline-v0.2"}
+        if self.detector is not None:
+            v[self.detector.model_id] = self.detector.version
+        return v
 
     def _abstain(self, img: LoadedImage | None, quality: ImageQuality, reason: str, detail: str | None,
                  ctx: ClinicalContext) -> AnalysisOutput:
@@ -138,6 +163,16 @@ class AnalysisPipeline:
         if quality.out_of_distribution:
             return self._abstain(image, quality, "out_of_distribution",
                                  f"mahalanobis={score:.2f} > {self.bundle.ood.threshold:.2f}", ctx)
+        # 6b. detector (Phase 2): boxes at per-class operating points
+        det_locs: dict[str, list[Localization]] = {}
+        det_valid: set[str] = set()
+        det_raw: dict[str, float] = {}
+        if self.detector is not None:
+            dets = self.detector.detect(image.pixels)
+            det_locs = merge_detections(dets, self.detector)
+            det_valid = self.detector.validated_concepts()
+            for d in dets:
+                det_raw[d.concept] = max(det_raw.get(d.concept, 0.0), d.score)
         # 7. calibration + tri-state decisions; 8-9. normalise to IR
         findings: list[Finding] = []
         heatmaps: dict[str, np.ndarray] = {}
@@ -160,15 +195,28 @@ class AnalysisPipeline:
                 status, reasons = FindingStatus.uncertain, [*reasons, "ap_projection_magnifies_cardiac_silhouette"]
             if quality.status == QualityStatus.limited and status == FindingStatus.uncertain:
                 reasons.append("limited_image_quality")
+            # Detector fusion (rules in 06-recommended-architecture.md, stages 7-8).
+            boxes = det_locs.get(code, [])
+            validated_boxes = [b for b in boxes if b.validated]
+            if code in det_valid:
+                if status == FindingStatus.absent and validated_boxes:
+                    status = FindingStatus.uncertain
+                    reasons.append("validated_detector_found_lesion_classifier_negative")
+                elif (status == FindingStatus.present and not validated_boxes and code not in GLOBAL_FINDINGS):
+                    status = FindingStatus.uncertain
+                    reasons.append("no_validated_localisation_for_focal_finding")
             locs: list[Localization] = []
             if status in (FindingStatus.present, FindingStatus.uncertain):
+                locs.extend(boxes)
                 bbox, hm = _bbox_from_map(maps_np[j], lb)
                 heatmaps[code] = hm
                 if bbox is not None:
                     locs.append(Localization(method=LocalizationMethod.activation_map, bbox=bbox,
                                              heatmap_uri=f"heatmap:{code}", validated=False))
+            observed = bool(validated_boxes) and status in (FindingStatus.present, FindingStatus.uncertain)
             findings.append(Finding(
-                code=code, display=c.display, status=status, provenance=Provenance.model_inferred,
+                code=code, display=c.display, status=status,
+                provenance=Provenance.image_observed if observed else Provenance.model_inferred,
                 localizations=locs, uncertainty_reasons=reasons,
                 evidence=ModelEvidence(model_id=self.bundle.model_id, model_version=self.bundle.model_version,
                                        raw_probability=raw_p, calibrated_probability=cal_p,
@@ -177,10 +225,29 @@ class AnalysisPipeline:
                 critical=c.critical_candidate and status in (FindingStatus.present, FindingStatus.uncertain),
             ))
         for k, c in CONCEPTS.items():
-            if k not in labels:
-                findings.append(Finding(code=k, display=c.display, status=FindingStatus.not_assessed,
-                                        provenance=Provenance.model_inferred,
-                                        not_assessed_reason="not_in_model_label_space"))
+            if k in labels:
+                continue
+            validated_boxes = [b for b in det_locs.get(k, []) if b.validated]
+            if k in det_valid and validated_boxes:
+                # Detector-only concept with a validated box: present, directly observed.
+                op = self.detector.operating_points[k]
+                top = validated_boxes[0].score or 0.0
+                findings.append(Finding(
+                    code=k, display=c.display, status=FindingStatus.present, provenance=Provenance.image_observed,
+                    localizations=det_locs[k],
+                    evidence=ModelEvidence(model_id=self.detector.model_id, model_version=self.detector.version,
+                                           raw_probability=min(det_raw.get(k, top), 1.0),
+                                           calibrated_probability=min(top, 1.0),
+                                           threshold_absent=min(op.box_score_threshold, 1.0),
+                                           threshold_present=min(op.box_score_threshold, 1.0)),
+                    critical=c.critical_candidate,
+                ))
+                continue
+            reason = ("detector_negative_not_validated_to_rule_out" if k in det_valid
+                      else "detector_not_validated" if self.detector is not None and k in self.detector.concepts
+                      else "not_in_model_label_space")
+            findings.append(Finding(code=k, display=c.display, status=FindingStatus.not_assessed,
+                                    provenance=Provenance.model_inferred, not_assessed_reason=reason))
         # 10. critical / uncertainty roll-up
         critical = CriticalStatus.suspected if any(f.critical for f in findings) else CriticalStatus.none_detected
         elevated = quality.status == QualityStatus.limited or any(f.status == FindingStatus.uncertain for f in findings)

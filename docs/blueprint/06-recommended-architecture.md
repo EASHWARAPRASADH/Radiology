@@ -164,7 +164,7 @@ Planned refinement for 3D modalities (Phase 7) splits `analyze` into the stage-l
 | Aspect | Phase-1 prototype (this Mac) | Product target |
 |---|---|---|
 | Encoder | DINOv2 ViT-S/14, 448 px input, fine-tuned on an NIH CXR14 subset | ViT-B/14 or ViT-L/14, CXR SSL on ≥ several hundred thousand licensed images, 518 px or higher |
-| Localisation | Grad-CAM display maps; Faster R-CNN on ChestX-Det (Phase 2) | RT-DETR / D-FINE family + nnU-Net 2D anatomy |
+| Localisation | Class-activation display maps (shown to point at chance level, 13 §4.2, so display-only); Faster R-CNN on ChestX-Det with per-class leak-reduced gating (Phase 2) | RT-DETR / D-FINE family + nnU-Net 2D anatomy |
 | Calibration | Temperature + split-conformal thresholds on the internal validation split | Per-site recalibration check during installation; PCCP-governed thresholds |
 | Text | Templates only | Templates + optional constrained LLM rephrase |
 | Output | JSON IR, draft text, SR, FHIR (preliminary) | Same, plus IHE AIR conformance |

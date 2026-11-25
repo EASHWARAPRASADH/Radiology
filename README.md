@@ -17,7 +17,7 @@ Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/). On Apple Silicon
 
 ```bash
 uv sync                      # install
-uv run pytest                # 35 tests: schema, report grounding, pipeline, API, exports, audit
+uv run pytest                # 47 tests: schema, report grounding, pipeline, API, exports, audit, detection
 uv run radio --help
 ```
 
@@ -67,6 +67,45 @@ uv run radio --help
 
    ```bash
    uv run radio serve runs/nih_dinov2s_smoke/bundle
+   ```
+
+### Phase 2: localisation (ChestX-Det)
+
+1. Download ChestX-Det (1.4 GB). The script validates the archives before extracting them:
+
+   ```bash
+   scripts/fetch_chestx_det.sh
+   ```
+
+2. Find ChestX-Det copies of your local NIH images, and test images that share an NIH patient with training:
+
+   ```bash
+   uv run radio dedupe-chestx-det
+   uv run radio leak-check-chestx-det
+   ```
+
+3. Train the detector. Faster R-CNN at 512 px takes about 14 min per epoch on an M4 Pro:
+
+   ```bash
+   uv run radio train-detector configs/detector_chestxdet.yaml
+   ```
+
+4. Re-score and gate per class on the test set minus the known-leaky images:
+
+   ```bash
+   uv run radio regate-detector runs/chestxdet_frcnn_512
+   ```
+
+5. Run the activation-map pointing game and score the classifier against radiologist labels:
+
+   ```bash
+   uv run radio eval-pointing runs/nih_dinov2s_224/bundle
+   ```
+
+6. Infer with the classifier and detector together:
+
+   ```bash
+   uv run radio infer runs/nih_dinov2s_224/bundle IMAGE --detector runs/chestxdet_frcnn_512/det_bundle
    ```
 
 ## Layout

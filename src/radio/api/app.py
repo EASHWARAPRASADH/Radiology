@@ -62,12 +62,17 @@ class Store:
 
 
 def create_app(bundle_dir: str | Path | None, storage_dir: str | Path = "runs/api_store",
-               device: str = "cpu") -> FastAPI:
+               device: str = "cpu", detector_dir: str | Path | None = None) -> FastAPI:
     """``bundle_dir=None`` builds the app without a model (used for OpenAPI export)."""
     bundle = ModelBundle.load(bundle_dir, device=device) if bundle_dir else None
     store = Store(Path(storage_dir))
     audit = AuditLog(Path(storage_dir) / "audit.jsonl")
-    pipeline = AnalysisPipeline(bundle, device=device, audit=audit) if bundle else None
+    detector = None
+    if detector_dir:
+        from radio.models.detector import DetectorBundle
+
+        detector = DetectorBundle(detector_dir, device=device)
+    pipeline = AnalysisPipeline(bundle, device=device, audit=audit, detector=detector) if bundle else None
     app = FastAPI(title="Radio CXR AI (research prototype)", version="0.1.0",
                   description="AI-generated drafts for radiologist review. Not a medical device.")
     app.state.pipeline = pipeline

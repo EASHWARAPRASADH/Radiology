@@ -114,7 +114,59 @@ Mean test AUROC across all 14 labels: **0.63** (967 images, 62 patients).
 | 2.7 | Continued self-supervised pretraining (DINOv2 recipe) on all OK-licensed CXRs (NIH full + MIDRC once signed) on cloud | Linear-probe AUROC gain over vanilla DINOv2 on the internal validation split |
 | 2.8 | Persist the prototype store in PostgreSQL per 12-database-design.md; move inference to a queue worker | API contract unchanged (OpenAPI diff empty except additions) |
 
-## 4. How to reproduce
+## 4. Phase 2 (localisation): implementation and results
+
+### 4.1 Implemented
+
+| WP | Module / command | Status |
+|---|---|---|
+| 2.1 ChestX-Det loader | `data/chestx_det.py`; `scripts/fetch_chestx_det.sh` (archive validation before extraction) | Done |
+| 2.1 Overlap / leakage audit | `radio dedupe-chestx-det`, `radio leak-check-chestx-det` | Done. Findings in §4.2 |
+| 2.2 Detector | `models/detector.py` (Faster R-CNN R50-FPN v2, BSD-3), `train/train_detector.py`, `configs/detector_chestxdet.yaml` | Done; results in §4.3 |
+| 2.2 Metrics | `eval/detection.py`: mAP@0.5 / @0.25, FROC at 0.25/0.5/1/2 FP per image (hit = IoU ≥ 0.25), pointing accuracy of true positives | Done (unit-tested on hand-computed cases) |
+| 2.3 Operating points | Per-class box-score threshold at 1 FP/image, chosen on the validation split | Done |
+| 2.5 Gating + fusion | Per-class gate (FROC sensitivity ≥ 0.80 at 1 FP/image with ≥ 30 reference boxes) on the **leak-reduced** test split (`radio regate-detector`). Only gated classes create `image_observed` findings with `validated=true` boxes | Done |
+| 2.5 Fusion rules (`pipeline/run.py`) | Validated box + classifier `absent` → `uncertain`. Classifier `present` without a validated box for a focal finding → capped at `uncertain`. Detector-only concepts (fracture, calcification): validated box → `present`, otherwise `not_assessed` (0.80 sensitivity cannot rule out) | Done, tested end to end |
+| 2.6 Activation-map audit | `eval/pointing.py`, `radio eval-pointing` | Done. Findings in §4.2 |
+| 2.4 Laterality from anatomy | — | **Blocked.** Needs licence-clean lung/heart masks (Montgomery/JSRT terms unverified). Laterality stays `unknown` |
+| 2.7 Continued SSL | — | **Deferred to cloud** (14) |
+| 2.8 PostgreSQL + queue | — | Deferred to Phase 5 (no change to the API contract) |
+
+### 4.2 Data findings (measured 2026-11-25)
+
+**ChestX-Det overlaps heavily with our NIH data.**
+- 950 of 3,578 ChestX-Det images are pixel-identical to images in NIH batch `images_001`. That is 40 of 40 sampled matches at 256 px, with correlation 1.000 and mean absolute difference 0, against a median of 0.58 for random pairs.
+- 782 of those copies are NIH images the Phase-1 classifier trained or calibrated on. They are excluded from classifier-side evaluation on ChestX-Det.
+
+**The official ChestX-Det split is not patient-disjoint.**
+- 139 of the 553 test images map to NIH patients. 111 of those belong to 73 patients who also appear in ChestX-Det train.
+- The 414 unmapped test images can't be checked, so the true leak is likely larger.
+- All gating therefore uses the test split minus the 111 known-leaky images. Leaky-only metrics are reported alongside so the inflation is visible (16 R26).
+
+**Classifier vs radiologist labels.** On ChestX-Det test images the classifier never saw (444 images), its image-level AUROC against **radiologist** labels is:
+
+| Finding | AUROC | Positive images |
+|---|---|---|
+| Pleural effusion | 0.81 | 219 |
+| Consolidation | 0.77 | 243 |
+| Emphysema | 0.71 | 30 |
+| Pneumothorax | 0.68 | 34 |
+| Cardiomegaly | 0.67 | 62 |
+| Pleural thickening | 0.65 | 71 |
+| Fibrosis | 0.64 | 58 |
+| Atelectasis | 0.59 | 47 |
+| Mass | 0.54 | 27 |
+| Nodule | 0.50 | 95 |
+
+For effusion, this is higher than the 0.71 measured on NIH's NLP-mined labels, which is consistent with label noise depressing the NIH scores. ChestX-Det is abnormality-enriched, so these numbers are not prevalence-representative.
+
+**Activation maps do not localise.** The pointing game (map peak inside a radiologist box) gives a mean hit rate of 0.11 against a chance rate of 0.10, over classes with ≥ 10 lesion images. Effusion is 0.02 against 0.10. Visual audit (`runs/cam_effusion_debug.png`, not committed) shows peaks on image borders and corners. This is consistent with DINOv2 high-norm artifact tokens (Darcet et al., *Vision Transformers Need Registers*, ICLR 2024). Activation maps remain display-only and `validated=false`. Next encoder: DINOv2 with registers (16 R27).
+
+### 4.3 Detector results
+
+_Filled in after training completes; see `runs/chestxdet_frcnn_512/eval_test*.json`._
+
+## 5. How to reproduce
 
 ```bash
 uv sync && uv run pytest

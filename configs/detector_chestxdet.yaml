@@ -1,0 +1,20 @@
+# Phase 2: Faster R-CNN R50-FPN v2 on ChestX-Det (Apache-2.0 annotations, NIH images), Apple MPS.
+# ImageNet backbone -> research_only=true (registry verdict CONDITIONAL for ImageNet-derived weights).
+run_name: chestxdet_frcnn_512
+purpose: research
+root: data/chestx_det
+dataset_ids: [chestx_det]
+val_frac: 0.15
+min_size: 512
+pretrained_backbone: true
+trainable_backbone_layers: 3
+epochs: 8          # ~14 min/epoch at 512 px on an M4 Pro (measured)
+batch_size: 4
+lr: 0.01
+warmup_iters: 200
+num_workers: 4
+device: auto
+target_fppi: 1.0
+gate_fppi: 1.0
+gate_min_sensitivity: 0.80
+gate_min_lesions: 30

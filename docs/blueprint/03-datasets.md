@@ -55,7 +55,7 @@ Abbreviations:
 | Dataset | Size / content | Annotations | Licence / terms | Verdict |
 |---|---|---|---|---|
 | **SIIM-ACR Pneumothorax** (Kaggle 2019) | Size unverified; source images reportedly NIH (unverified) | Pneumothorax masks | Kaggle rules: "Any purpose, including commercial use"; no redistribution to non-participants | **OK** (no redistribution) |
-| **ChestX-Det** (Deepwise) | 3,578 NIH images, 13 classes, 3 radiologists | Boxes **and** masks | Repo Apache-2.0; images carry NIH unrestricted terms | **OK.** Key Phase-2 localization set |
+| **ChestX-Det** (Deepwise) | 3,578 NIH images, 13 classes, 3 radiologists | Boxes **and** masks | Repo Apache-2.0; images carry NIH unrestricted terms | **OK.** Key Phase-2 localization set. **Measured 2026-11-25:** images are renamed (no NIH IDs); 950 of 3,578 are pixel-identical to images in NIH batch `images_001`. The official train/test split is **not patient-disjoint** (111 of 139 mappable test images share a patient with train). See 16 R26 |
 | **CANDID-PTX** | 19,237 DICOM images with reports (Dunedin, NZ) | Pneumothorax, rib-fracture, chest-tube masks | Figshare lists CC BY 4.0, but since Feb 2024 access is limited to Health New Zealand users | **UNAVAILABLE** |
 | **Shenzhen / Montgomery TB** (NLM) | 662 (326 normal / 336 TB) / 138 (80 / 58) | Montgomery lung masks | Request form; "do not share … outside of their research groups"; credit NLM; no explicit licence | **UNVERIFIED** (ask NLM) |
 | **JSRT** | 247 (154 nodule / 93 non-nodule) | Nodule locations | Official page 404; licence unverified | **EXCLUDE** until clarified |
