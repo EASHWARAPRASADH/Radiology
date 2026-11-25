@@ -1,0 +1,1610 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Radio CXR AI (research prototype)",
+    "description": "AI-generated drafts for radiologist review. Not a medical device.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies": {
+      "post": {
+        "summary": "Create Study",
+        "operationId": "create_study_v1_studies_post",
+        "parameters": [
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "name": "x-user-role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_study_v1_studies_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{rid}": {
+      "get": {
+        "summary": "Get Study",
+        "operationId": "get_study_v1_studies__rid__get",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "name": "x-user-role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{rid}/report": {
+      "get": {
+        "summary": "Get Report",
+        "operationId": "get_report_v1_studies__rid__report_get",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "name": "x-user-role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{rid}/review": {
+      "post": {
+        "summary": "Review",
+        "operationId": "review_v1_reports__rid__review_post",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "name": "x-user-role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{rid}/sr": {
+      "get": {
+        "summary": "Get Sr",
+        "operationId": "get_sr_v1_studies__rid__sr_get",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "name": "x-user-role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{rid}/fhir": {
+      "get": {
+        "summary": "Get Fhir",
+        "operationId": "get_fhir_v1_studies__rid__fhir_get",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          },
+          {
+            "name": "x-user-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "name": "x-user-role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Abstention": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "Abstention"
+      },
+      "AnalysisResult": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "0.1.0"
+          },
+          "result_id": {
+            "type": "string",
+            "title": "Result Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "study": {
+            "$ref": "#/components/schemas/StudyInfo"
+          },
+          "clinical_context": {
+            "$ref": "#/components/schemas/ClinicalContext"
+          },
+          "image_quality": {
+            "$ref": "#/components/schemas/ImageQuality"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "impression": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Impression"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/Recommendation"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "critical_status": {
+            "$ref": "#/components/schemas/CriticalStatus"
+          },
+          "uncertainty_status": {
+            "$ref": "#/components/schemas/UncertaintyStatus"
+          },
+          "abstention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Abstention"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_versions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Model Versions"
+          },
+          "review_status": {
+            "$ref": "#/components/schemas/ReviewStatus",
+            "default": "draft"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/Review"
+            },
+            "type": "array",
+            "title": "Reviews"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "study",
+          "image_quality",
+          "critical_status",
+          "uncertainty_status"
+        ],
+        "title": "AnalysisResult",
+        "description": "Top-level machine-readable output for one analysed image/study."
+      },
+      "Body_create_study_v1_studies_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "indication": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indication"
+          },
+          "view_position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "View Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_study_v1_studies_post"
+      },
+      "BoundingBox": {
+        "properties": {
+          "x_min": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "X Min"
+          },
+          "y_min": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Y Min"
+          },
+          "x_max": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "X Max"
+          },
+          "y_max": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Y Max"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x_min",
+          "y_min",
+          "x_max",
+          "y_max"
+        ],
+        "title": "BoundingBox",
+        "description": "Axis-aligned box in source-image pixel coordinates (column=x, row=y, origin top-left)."
+      },
+      "ClinicalContext": {
+        "properties": {
+          "indication": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indication"
+          },
+          "history": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History"
+          },
+          "priors": {
+            "items": {
+              "$ref": "#/components/schemas/PriorStudy"
+            },
+            "type": "array",
+            "title": "Priors"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ClinicalContext"
+      },
+      "CriticalStatus": {
+        "type": "string",
+        "enum": [
+          "none_detected",
+          "suspected",
+          "not_assessed"
+        ],
+        "title": "CriticalStatus"
+      },
+      "DraftReport": {
+        "properties": {
+          "ai_generated": {
+            "type": "boolean",
+            "const": true,
+            "title": "Ai Generated",
+            "default": true
+          },
+          "disclaimer": {
+            "type": "string",
+            "title": "Disclaimer",
+            "default": "AI-GENERATED DRAFT - not reviewed. For radiologist review only; not for clinical decision-making until approved by a qualified radiologist."
+          },
+          "study_section": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSentence"
+            },
+            "type": "array",
+            "title": "Study Section"
+          },
+          "clinical_section": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSentence"
+            },
+            "type": "array",
+            "title": "Clinical Section"
+          },
+          "technique_quality": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSentence"
+            },
+            "type": "array",
+            "title": "Technique Quality"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSentence"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "impression": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSentence"
+            },
+            "type": "array",
+            "title": "Impression"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/Recommendation"
+            },
+            "type": "array",
+            "title": "Recommendations"
+          },
+          "generator": {
+            "type": "string",
+            "title": "Generator"
+          },
+          "validation_passed": {
+            "type": "boolean",
+            "title": "Validation Passed",
+            "default": false
+          },
+          "validation_issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": "array",
+            "title": "Validation Issues"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "generator"
+        ],
+        "title": "DraftReport"
+      },
+      "Finding": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Internal concept key (radio.ontology.cxr.CONCEPTS)."
+          },
+          "display": {
+            "type": "string",
+            "title": "Display"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FindingStatus"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          },
+          "laterality": {
+            "$ref": "#/components/schemas/Laterality",
+            "default": "unknown"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "localizations": {
+            "items": {
+              "$ref": "#/components/schemas/Localization"
+            },
+            "type": "array",
+            "title": "Localizations"
+          },
+          "measurements": {
+            "items": {
+              "$ref": "#/components/schemas/Measurement"
+            },
+            "type": "array",
+            "title": "Measurements"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Severity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only populated by a validated severity method."
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "uncertainty_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Uncertainty Reasons"
+          },
+          "not_assessed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Assessed Reason"
+          },
+          "critical": {
+            "type": "boolean",
+            "title": "Critical",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "display",
+          "status",
+          "provenance"
+        ],
+        "title": "Finding"
+      },
+      "FindingOverride": {
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "title": "Finding Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FindingStatus"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "finding_id",
+          "status"
+        ],
+        "title": "FindingOverride"
+      },
+      "FindingStatus": {
+        "type": "string",
+        "enum": [
+          "present",
+          "absent",
+          "uncertain",
+          "not_assessed"
+        ],
+        "title": "FindingStatus"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ImageQuality": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/QualityStatus"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "ood_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ood Score"
+          },
+          "ood_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ood Threshold"
+          },
+          "out_of_distribution": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Out Of Distribution"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ImageQuality"
+      },
+      "Laterality": {
+        "type": "string",
+        "enum": [
+          "left",
+          "right",
+          "bilateral",
+          "not_applicable",
+          "unknown"
+        ],
+        "title": "Laterality"
+      },
+      "Localization": {
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/LocalizationMethod"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundingBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "heatmap_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heatmap Uri"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region",
+            "description": "Coarse anatomical region, e.g. 'left lower zone'."
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "validated": {
+            "type": "boolean",
+            "title": "Validated",
+            "description": "True only if this localization method was validated against expert boxes.",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "method"
+        ],
+        "title": "Localization"
+      },
+      "LocalizationMethod": {
+        "type": "string",
+        "enum": [
+          "detector",
+          "segmentation",
+          "activation_map",
+          "radiologist"
+        ],
+        "title": "LocalizationMethod"
+      },
+      "Measurement": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "unit",
+          "method",
+          "provenance"
+        ],
+        "title": "Measurement"
+      },
+      "ModelEvidence": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "raw_probability": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Raw Probability"
+          },
+          "calibrated_probability": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Calibrated Probability"
+          },
+          "threshold_absent": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold Absent"
+          },
+          "threshold_present": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold Present"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model_id",
+          "model_version",
+          "raw_probability",
+          "calibrated_probability",
+          "threshold_absent",
+          "threshold_present"
+        ],
+        "title": "ModelEvidence"
+      },
+      "PriorStudy": {
+        "properties": {
+          "study_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Study Date"
+          },
+          "report_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Text"
+          },
+          "provenance": {
+            "type": "string",
+            "const": "prior_report",
+            "title": "Provenance",
+            "default": "prior_report"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PriorStudy"
+      },
+      "Provenance": {
+        "type": "string",
+        "enum": [
+          "image_observed",
+          "model_inferred",
+          "clinical_history",
+          "prior_report",
+          "radiologist_entered",
+          "study_metadata"
+        ],
+        "title": "Provenance"
+      },
+      "QualityStatus": {
+        "type": "string",
+        "enum": [
+          "adequate",
+          "limited",
+          "non_diagnostic",
+          "not_assessed"
+        ],
+        "title": "QualityStatus"
+      },
+      "Recommendation": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "guideline_id": {
+            "type": "string",
+            "title": "Guideline Id",
+            "description": "Identifier of the approved guideline in the clinical knowledge base."
+          },
+          "finding_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Finding Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "guideline_id",
+          "finding_ids"
+        ],
+        "title": "Recommendation"
+      },
+      "ReportSentence": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SentenceKind"
+          },
+          "finding_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Finding Ids"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "kind",
+          "provenance"
+        ],
+        "title": "ReportSentence"
+      },
+      "Review": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Reviewer Id"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ReviewAction"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "final_report_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Report Text"
+          },
+          "finding_overrides": {
+            "items": {
+              "$ref": "#/components/schemas/FindingOverride"
+            },
+            "type": "array",
+            "title": "Finding Overrides"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reviewer_id",
+          "action"
+        ],
+        "title": "Review"
+      },
+      "ReviewAction": {
+        "type": "string",
+        "enum": [
+          "approve",
+          "amend",
+          "reject"
+        ],
+        "title": "ReviewAction"
+      },
+      "ReviewRequest": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ReviewAction"
+          },
+          "final_report_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Report Text"
+          },
+          "finding_overrides": {
+            "items": {
+              "$ref": "#/components/schemas/FindingOverride"
+            },
+            "type": "array",
+            "title": "Finding Overrides",
+            "default": []
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ReviewRequest"
+      },
+      "ReviewStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "in_review",
+          "approved",
+          "amended",
+          "rejected"
+        ],
+        "title": "ReviewStatus"
+      },
+      "SentenceKind": {
+        "type": "string",
+        "enum": [
+          "positive",
+          "negative",
+          "uncertain",
+          "not_assessed",
+          "normal_summary",
+          "context",
+          "quality"
+        ],
+        "title": "SentenceKind"
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "mild",
+          "moderate",
+          "severe"
+        ],
+        "title": "Severity"
+      },
+      "StudyInfo": {
+        "properties": {
+          "study_instance_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Study Instance Uid"
+          },
+          "series_instance_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Instance Uid"
+          },
+          "sop_instance_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Instance Uid"
+          },
+          "modality": {
+            "type": "string",
+            "title": "Modality"
+          },
+          "anatomical_region": {
+            "type": "string",
+            "title": "Anatomical Region"
+          },
+          "view_position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "View Position"
+          },
+          "source_format": {
+            "type": "string",
+            "enum": [
+              "dicom",
+              "png",
+              "jpeg"
+            ],
+            "title": "Source Format"
+          },
+          "image_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Rows"
+          },
+          "image_columns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Columns"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "modality",
+          "anatomical_region",
+          "source_format"
+        ],
+        "title": "StudyInfo"
+      },
+      "UncertaintyStatus": {
+        "type": "string",
+        "enum": [
+          "low",
+          "elevated",
+          "high"
+        ],
+        "title": "UncertaintyStatus"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationIssue": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "sentence_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentence Index"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "ValidationIssue"
+      }
+    }
+  }
+}

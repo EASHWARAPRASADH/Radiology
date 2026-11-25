@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "radio-api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "radio", "serve", "runs/nih_dinov2s_224/bundle", "--port", "8765", "--storage", "runs/api_demo_store"],
+      "port": 8765,
+      "url": "http://127.0.0.1:8765"
+    }
+  ]
+}

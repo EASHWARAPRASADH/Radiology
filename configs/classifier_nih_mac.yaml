@@ -1,0 +1,29 @@
+# Phase-1 feasibility run sized for an Apple M4 Pro (24 GB) on one NIH CXR14 batch (~5k images).
+# 224 px measured at ~64 img/s training on MPS (448 px: ~7 img/s -> reserved for cloud runs).
+run_name: nih_dinov2s_224
+purpose: research
+data:
+  dataset_ids: [nih_cxr14]
+  csv: data/nih/Data_Entry_2017.csv
+  images: data/nih/images
+  split_dir: data/nih
+  max_images: null
+  val_frac: 0.25            # larger calibration split so more findings reach min_positives
+model:
+  encoder: vit_small_patch14_dinov2.lvd142m
+  pretrained: true
+  img_size: 224
+  dropout: 0.1
+optim:
+  epochs: 8
+  batch_size: 32
+  lr_head: 1.0e-3
+  lr_encoder: 3.0e-5
+  weight_decay: 0.05
+  warmup_frac: 0.05
+  loss: bce
+  num_workers: 6
+  amp: true
+  device: auto
+  seed: 0
+  max_ood_train_feats: 3000

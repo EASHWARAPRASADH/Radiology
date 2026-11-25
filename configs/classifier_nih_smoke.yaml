@@ -1,0 +1,21 @@
+# Fast smoke run (minutes on an M-series Mac): small input, few epochs, capped images.
+run_name: nih_dinov2s_smoke
+purpose: research
+data:
+  dataset_ids: [nih_cxr14]
+  csv: data/nih/Data_Entry_2017.csv
+  images: data/nih/images
+  split_dir: data/nih
+  max_images: 2000
+  val_frac: 0.15
+model:
+  encoder: vit_small_patch14_dinov2.lvd142m
+  pretrained: true
+  img_size: 224
+optim:
+  epochs: 2
+  batch_size: 32
+  num_workers: 4
+  amp: true
+  device: auto
+  max_ood_train_feats: 1000

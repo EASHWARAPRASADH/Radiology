@@ -1,0 +1,1049 @@
+{
+  "$defs": {
+    "Abstention": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "Abstention",
+      "type": "object"
+    },
+    "BoundingBox": {
+      "additionalProperties": false,
+      "description": "Axis-aligned box in source-image pixel coordinates (column=x, row=y, origin top-left).",
+      "properties": {
+        "x_min": {
+          "minimum": 0,
+          "title": "X Min",
+          "type": "number"
+        },
+        "y_min": {
+          "minimum": 0,
+          "title": "Y Min",
+          "type": "number"
+        },
+        "x_max": {
+          "minimum": 0,
+          "title": "X Max",
+          "type": "number"
+        },
+        "y_max": {
+          "minimum": 0,
+          "title": "Y Max",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x_min",
+        "y_min",
+        "x_max",
+        "y_max"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "ClinicalContext": {
+      "additionalProperties": false,
+      "properties": {
+        "indication": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Indication"
+        },
+        "history": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "History"
+        },
+        "priors": {
+          "items": {
+            "$ref": "#/$defs/PriorStudy"
+          },
+          "title": "Priors",
+          "type": "array"
+        }
+      },
+      "title": "ClinicalContext",
+      "type": "object"
+    },
+    "CriticalStatus": {
+      "enum": [
+        "none_detected",
+        "suspected",
+        "not_assessed"
+      ],
+      "title": "CriticalStatus",
+      "type": "string"
+    },
+    "DraftReport": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_generated": {
+          "const": true,
+          "default": true,
+          "title": "Ai Generated",
+          "type": "boolean"
+        },
+        "disclaimer": {
+          "default": "AI-GENERATED DRAFT - not reviewed. For radiologist review only; not for clinical decision-making until approved by a qualified radiologist.",
+          "title": "Disclaimer",
+          "type": "string"
+        },
+        "study_section": {
+          "items": {
+            "$ref": "#/$defs/ReportSentence"
+          },
+          "title": "Study Section",
+          "type": "array"
+        },
+        "clinical_section": {
+          "items": {
+            "$ref": "#/$defs/ReportSentence"
+          },
+          "title": "Clinical Section",
+          "type": "array"
+        },
+        "technique_quality": {
+          "items": {
+            "$ref": "#/$defs/ReportSentence"
+          },
+          "title": "Technique Quality",
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/ReportSentence"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "impression": {
+          "items": {
+            "$ref": "#/$defs/ReportSentence"
+          },
+          "title": "Impression",
+          "type": "array"
+        },
+        "recommendations": {
+          "items": {
+            "$ref": "#/$defs/Recommendation"
+          },
+          "title": "Recommendations",
+          "type": "array"
+        },
+        "generator": {
+          "title": "Generator",
+          "type": "string"
+        },
+        "validation_passed": {
+          "default": false,
+          "title": "Validation Passed",
+          "type": "boolean"
+        },
+        "validation_issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Validation Issues",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generator"
+      ],
+      "title": "DraftReport",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "code": {
+          "description": "Internal concept key (radio.ontology.cxr.CONCEPTS).",
+          "title": "Code",
+          "type": "string"
+        },
+        "display": {
+          "title": "Display",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FindingStatus"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "laterality": {
+          "$ref": "#/$defs/Laterality",
+          "default": "unknown"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
+        },
+        "localizations": {
+          "items": {
+            "$ref": "#/$defs/Localization"
+          },
+          "title": "Localizations",
+          "type": "array"
+        },
+        "measurements": {
+          "items": {
+            "$ref": "#/$defs/Measurement"
+          },
+          "title": "Measurements",
+          "type": "array"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Severity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only populated by a validated severity method."
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "uncertainty_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Uncertainty Reasons",
+          "type": "array"
+        },
+        "not_assessed_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Not Assessed Reason"
+        },
+        "critical": {
+          "default": false,
+          "title": "Critical",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "display",
+        "status",
+        "provenance"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "FindingOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FindingStatus"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "finding_id",
+        "status"
+      ],
+      "title": "FindingOverride",
+      "type": "object"
+    },
+    "FindingStatus": {
+      "enum": [
+        "present",
+        "absent",
+        "uncertain",
+        "not_assessed"
+      ],
+      "title": "FindingStatus",
+      "type": "string"
+    },
+    "ImageQuality": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/QualityStatus"
+        },
+        "issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "ood_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ood Score"
+        },
+        "ood_threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ood Threshold"
+        },
+        "out_of_distribution": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Out Of Distribution"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ImageQuality",
+      "type": "object"
+    },
+    "Laterality": {
+      "enum": [
+        "left",
+        "right",
+        "bilateral",
+        "not_applicable",
+        "unknown"
+      ],
+      "title": "Laterality",
+      "type": "string"
+    },
+    "Localization": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/LocalizationMethod"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "heatmap_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Heatmap Uri"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Coarse anatomical region, e.g. 'left lower zone'.",
+          "title": "Region"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "validated": {
+          "default": false,
+          "description": "True only if this localization method was validated against expert boxes.",
+          "title": "Validated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "Localization",
+      "type": "object"
+    },
+    "LocalizationMethod": {
+      "enum": [
+        "detector",
+        "segmentation",
+        "activation_map",
+        "radiologist"
+      ],
+      "title": "LocalizationMethod",
+      "type": "string"
+    },
+    "Measurement": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "unit",
+        "method",
+        "provenance"
+      ],
+      "title": "Measurement",
+      "type": "object"
+    },
+    "ModelEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_version": {
+          "title": "Model Version",
+          "type": "string"
+        },
+        "raw_probability": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Raw Probability",
+          "type": "number"
+        },
+        "calibrated_probability": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Calibrated Probability",
+          "type": "number"
+        },
+        "threshold_absent": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Threshold Absent",
+          "type": "number"
+        },
+        "threshold_present": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Threshold Present",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_version",
+        "raw_probability",
+        "calibrated_probability",
+        "threshold_absent",
+        "threshold_present"
+      ],
+      "title": "ModelEvidence",
+      "type": "object"
+    },
+    "PriorStudy": {
+      "additionalProperties": false,
+      "properties": {
+        "study_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Study Date"
+        },
+        "report_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Text"
+        },
+        "provenance": {
+          "const": "prior_report",
+          "default": "prior_report",
+          "title": "Provenance",
+          "type": "string"
+        }
+      },
+      "title": "PriorStudy",
+      "type": "object"
+    },
+    "Provenance": {
+      "enum": [
+        "image_observed",
+        "model_inferred",
+        "clinical_history",
+        "prior_report",
+        "radiologist_entered",
+        "study_metadata"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "QualityStatus": {
+      "enum": [
+        "adequate",
+        "limited",
+        "non_diagnostic",
+        "not_assessed"
+      ],
+      "title": "QualityStatus",
+      "type": "string"
+    },
+    "Recommendation": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "guideline_id": {
+          "description": "Identifier of the approved guideline in the clinical knowledge base.",
+          "title": "Guideline Id",
+          "type": "string"
+        },
+        "finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Finding Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text",
+        "guideline_id",
+        "finding_ids"
+      ],
+      "title": "Recommendation",
+      "type": "object"
+    },
+    "ReportSentence": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/SentenceKind"
+        },
+        "finding_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Finding Ids",
+          "type": "array"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "text",
+        "kind",
+        "provenance"
+      ],
+      "title": "ReportSentence",
+      "type": "object"
+    },
+    "Review": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "minLength": 1,
+          "title": "Reviewer Id",
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/ReviewAction"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "final_report_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Final Report Text"
+        },
+        "finding_overrides": {
+          "items": {
+            "$ref": "#/$defs/FindingOverride"
+          },
+          "title": "Finding Overrides",
+          "type": "array"
+        },
+        "comment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comment"
+        }
+      },
+      "required": [
+        "reviewer_id",
+        "action"
+      ],
+      "title": "Review",
+      "type": "object"
+    },
+    "ReviewAction": {
+      "enum": [
+        "approve",
+        "amend",
+        "reject"
+      ],
+      "title": "ReviewAction",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "enum": [
+        "draft",
+        "in_review",
+        "approved",
+        "amended",
+        "rejected"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    },
+    "SentenceKind": {
+      "enum": [
+        "positive",
+        "negative",
+        "uncertain",
+        "not_assessed",
+        "normal_summary",
+        "context",
+        "quality"
+      ],
+      "title": "SentenceKind",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "mild",
+        "moderate",
+        "severe"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "StudyInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "study_instance_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Study Instance Uid"
+        },
+        "series_instance_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Series Instance Uid"
+        },
+        "sop_instance_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sop Instance Uid"
+        },
+        "modality": {
+          "title": "Modality",
+          "type": "string"
+        },
+        "anatomical_region": {
+          "title": "Anatomical Region",
+          "type": "string"
+        },
+        "view_position": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View Position"
+        },
+        "source_format": {
+          "enum": [
+            "dicom",
+            "png",
+            "jpeg"
+          ],
+          "title": "Source Format",
+          "type": "string"
+        },
+        "image_rows": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Rows"
+        },
+        "image_columns": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Columns"
+        }
+      },
+      "required": [
+        "modality",
+        "anatomical_region",
+        "source_format"
+      ],
+      "title": "StudyInfo",
+      "type": "object"
+    },
+    "UncertaintyStatus": {
+      "enum": [
+        "low",
+        "elevated",
+        "high"
+      ],
+      "title": "UncertaintyStatus",
+      "type": "string"
+    },
+    "ValidationIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
+        },
+        "sentence_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sentence Index"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ],
+      "title": "ValidationIssue",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Top-level machine-readable output for one analysed image/study.",
+  "properties": {
+    "schema_version": {
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "result_id": {
+      "title": "Result Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "study": {
+      "$ref": "#/$defs/StudyInfo"
+    },
+    "clinical_context": {
+      "$ref": "#/$defs/ClinicalContext"
+    },
+    "image_quality": {
+      "$ref": "#/$defs/ImageQuality"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "impression": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Impression",
+      "type": "array"
+    },
+    "recommendations": {
+      "items": {
+        "$ref": "#/$defs/Recommendation"
+      },
+      "title": "Recommendations",
+      "type": "array"
+    },
+    "critical_status": {
+      "$ref": "#/$defs/CriticalStatus"
+    },
+    "uncertainty_status": {
+      "$ref": "#/$defs/UncertaintyStatus"
+    },
+    "abstention": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Abstention"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "report": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DraftReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Model Versions",
+      "type": "object"
+    },
+    "review_status": {
+      "$ref": "#/$defs/ReviewStatus",
+      "default": "draft"
+    },
+    "reviews": {
+      "items": {
+        "$ref": "#/$defs/Review"
+      },
+      "title": "Reviews",
+      "type": "array"
+    }
+  },
+  "required": [
+    "study",
+    "image_quality",
+    "critical_status",
+    "uncertainty_status"
+  ],
+  "title": "Radio AnalysisResult",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radio.local/schemas/analysis-result/0.1.0"
+}

@@ -1,0 +1,29 @@
+# Phase-1 feasibility run on the NIH ChestX-ray14 subset present under data/nih/images (Apple MPS).
+# Research purpose: product runs require purpose: product and every dataset/weights verdict OK.
+run_name: nih_dinov2s_448
+purpose: research
+data:
+  dataset_ids: [nih_cxr14]
+  csv: data/nih/Data_Entry_2017.csv
+  images: data/nih/images
+  split_dir: data/nih          # official test_list.txt defines the test set (patient-wise)
+  max_images: null
+  val_frac: 0.15
+model:
+  encoder: vit_small_patch14_dinov2.lvd142m   # Apache-2.0 code + weights
+  pretrained: true
+  img_size: 448                               # 32x32 patch grid
+  dropout: 0.1
+optim:
+  epochs: 6
+  batch_size: 24
+  lr_head: 1.0e-3
+  lr_encoder: 2.0e-5
+  weight_decay: 0.05
+  warmup_frac: 0.05
+  loss: bce
+  num_workers: 6
+  amp: true
+  device: auto
+  seed: 0
+  max_ood_train_feats: 3000
