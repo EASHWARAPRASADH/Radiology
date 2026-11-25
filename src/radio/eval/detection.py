@@ -6,6 +6,8 @@
   unmatched reference box of the same class; each reference box is matched at most once.
 * Pointing accuracy: fraction of true-positive predictions whose box centre lies inside the reference box.
 * Per-image detection: sensitivity/specificity of "any box of class k with score >= t".
+* Gating uncertainty: image-level (cluster) bootstrap CI for FROC sensitivity at a fixed FP/image rate.
+  Boxes cluster within images, so resampling boxes would understate the interval.
 """
 
 from __future__ import annotations
@@ -44,7 +46,10 @@ def iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 def _match_class(preds: list[ImagePreds], gts: list[ImageGT], cls: str, iou_thr: float):
-    """Greedy score-ordered matching. Returns (scores, is_tp, centre_inside, n_gt)."""
+    """Greedy score-ordered matching. Returns (scores, is_tp, centre_inside, n_gt, image_index).
+
+    Each reference box can be claimed once, and claims only compete within an image, so the per-prediction
+    tp flags are fixed per image; that is what lets ``froc_sensitivity_ci`` resample whole images."""
     recs = []
     n_gt = 0
     for img_idx, (p, g) in enumerate(zip(preds, gts, strict=True)):
@@ -55,7 +60,7 @@ def _match_class(preds: list[ImagePreds], gts: list[ImageGT], cls: str, iou_thr:
             recs.append((float(p.scores[k]), img_idx, k))
     recs.sort(key=lambda r: -r[0])
     used: dict[int, set[int]] = {}
-    scores, tps, inside = [], [], []
+    scores, tps, inside, imgs = [], [], [], []
     for s, img_idx, k in recs:
         g = gts[img_idx]
         gidx = np.flatnonzero(np.array([lab == cls for lab in g.labels], dtype=bool))
@@ -76,7 +81,9 @@ def _match_class(preds: list[ImagePreds], gts: list[ImageGT], cls: str, iou_thr:
         scores.append(s)
         tps.append(hit)
         inside.append(centre_in)
-    return np.array(scores), np.array(tps, dtype=bool), np.array(inside, dtype=bool), n_gt
+        imgs.append(img_idx)
+    return (np.array(scores), np.array(tps, dtype=bool), np.array(inside, dtype=bool), n_gt,
+            np.array(imgs, dtype=np.int64))
 
 
 def average_precision(tp: np.ndarray, n_gt: int) -> float:
@@ -128,8 +135,8 @@ def evaluate_detections(preds: list[ImagePreds], gts: list[ImageGT], classes: li
     res: dict[str, dict] = {}
     for c in classes:
         r: dict[str, float] = {}
-        s50, tp50, _, n_gt = _match_class(preds, gts, c, 0.5)
-        s25, tp25, inside, _ = _match_class(preds, gts, c, hit_iou)
+        s50, tp50, _, n_gt, _ = _match_class(preds, gts, c, 0.5)
+        s25, tp25, inside, _, _ = _match_class(preds, gts, c, hit_iou)
         r["n_gt_boxes"] = float(n_gt)
         r["n_images_with_class"] = float(sum(1 for g in gts if c in g.labels))
         r["ap50"] = average_precision(tp50[np.argsort(-s50)] if len(s50) else tp50, n_gt)
@@ -151,5 +158,45 @@ def evaluate_detections(preds: list[ImagePreds], gts: list[ImageGT], classes: li
 
 def class_tp_arrays(preds, gts, cls, hit_iou=0.25):
     """Expose (scores, tp, n_gt) for operating-point selection."""
-    s, tp, _, n_gt = _match_class(preds, gts, cls, hit_iou)
+    s, tp, _, n_gt, _ = _match_class(preds, gts, cls, hit_iou)
     return s, tp, n_gt
+
+
+def _weighted_sens_at_fppi(tp_sorted: np.ndarray, w_sorted: np.ndarray, n_gt_w: float, n_images: int,
+                           fppi: float) -> float:
+    if n_gt_w <= 0:
+        return float("nan")
+    if len(tp_sorted) == 0:
+        return 0.0
+    sens = np.cumsum(w_sorted * tp_sorted) / n_gt_w
+    fp = np.cumsum(w_sorted * ~tp_sorted) / max(n_images, 1)
+    ok = fp <= fppi
+    return float(sens[ok].max()) if ok.any() else 0.0
+
+
+def froc_sensitivity_ci(preds: list[ImagePreds], gts: list[ImageGT], cls: str, fppi: float = 1.0,
+                        hit_iou: float = 0.25, n_boot: int = 2000, level: float = 0.95,
+                        seed: int = 0) -> dict[str, float]:
+    """FROC sensitivity at ``fppi`` with a percentile CI from an image-level bootstrap.
+
+    Each replicate resamples images with replacement (the number of images stays fixed), so lesions and
+    false positives from one image move together. Returns point, lower, upper, n_gt and n_boot.
+    Replicates with no reference boxes of ``cls`` are dropped (``n_boot`` reports how many were used)."""
+    s, tp, _, n_gt, img = _match_class(preds, gts, cls, hit_iou)
+    n_img = len(gts)
+    gt_per_img = np.array([sum(lab == cls for lab in g.labels) for g in gts], dtype=np.float64)
+    order = np.argsort(-s, kind="stable")
+    tp_o, img_o = tp[order], img[order]
+    point = _weighted_sens_at_fppi(tp_o, np.ones(len(tp_o)), float(n_gt), n_img, fppi)
+    if n_gt == 0:
+        return {"point": point, "lower": float("nan"), "upper": float("nan"), "n_gt": 0, "n_boot": 0}
+    rng = np.random.default_rng(seed)
+    reps = []
+    for _ in range(n_boot):
+        counts = np.bincount(rng.integers(0, n_img, n_img), minlength=n_img).astype(np.float64)
+        v = _weighted_sens_at_fppi(tp_o, counts[img_o], float(counts @ gt_per_img), n_img, fppi)
+        if not np.isnan(v):
+            reps.append(v)
+    a = (1 - level) / 2
+    lo, hi = (np.quantile(reps, [a, 1 - a]) if reps else (float("nan"), float("nan")))
+    return {"point": point, "lower": float(lo), "upper": float(hi), "n_gt": int(n_gt), "n_boot": len(reps)}

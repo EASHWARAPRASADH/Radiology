@@ -17,7 +17,7 @@ Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/). On Apple Silicon
 
 ```bash
 uv sync                      # install
-uv run pytest                # 46 tests: schema, report grounding, pipeline, API, exports, audit, detection
+uv run pytest                # 49 tests: schema, report grounding, pipeline, API, exports, audit, detection
 uv run radio --help
 ```
 
@@ -90,7 +90,7 @@ uv run radio --help
    uv run radio train-detector configs/detector_chestxdet.yaml
    ```
 
-4. Re-score and gate per class on the test set minus the known-leaky images:
+4. Re-score on the test set minus the known-leaky images, and gate each class on the lower 95% confidence bound of its sensitivity:
 
    ```bash
    uv run radio regate-detector runs/chestxdet_frcnn_512

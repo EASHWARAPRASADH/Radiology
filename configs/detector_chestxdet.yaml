@@ -18,3 +18,6 @@ target_fppi: 1.0
 gate_fppi: 1.0
 gate_min_sensitivity: 0.80
 gate_min_lesions: 30
+gate_statistic: lower_bound   # gate on the lower end of an image-level bootstrap CI
+gate_ci_level: 0.95
+gate_bootstrap: 2000

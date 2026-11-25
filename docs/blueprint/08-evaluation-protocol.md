@@ -47,6 +47,7 @@ Code lives in `src/radio/eval/metrics.py` (L1–L2) and `src/radio/eval/report_m
 | FROC | Lesion-level sensitivity vs mean false positives per image. Report sensitivity at **0.25, 0.5, 1 and 2 FP/image** (clinically relevant FP rates) |
 | Lesion localisation accuracy | Fraction of true positives whose predicted box centre falls inside the reference box or mask (pointing game), and laterality accuracy |
 | Per-image detection | Sensitivity and specificity of "any box for finding k" vs image-level reference |
+| Uncertainty and gating | 95% CI for FROC sensitivity from an **image-level** bootstrap: whole images are resampled so clustered lesions and their false positives move together (box-level binomial CIs are too narrow). A class is validated for localisation only if the **lower** CI bound meets the threshold (prototype: ≥ 0.80 at 1 FP/image, ≥ 30 reference boxes); a point estimate above threshold is not enough. Implemented in `eval/detection.py::froc_sensitivity_ci` and `train/train_detector.py::gate_class` |
 
 ## 3. Segmentation
 

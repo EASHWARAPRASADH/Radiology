@@ -42,6 +42,57 @@ def test_froc_counts_false_positives_per_image():
     assert r["sens@0.5fp"] == 1.0
 
 
+def _clustered_case():
+    """20 images x 5 lesions. Images 0-9: every lesion found; 10-19: none found. No false positives."""
+    box = np.array([[0, 0, 10, 10]], float)
+    gts = [ImageGT(np.repeat(box, 5, axis=0) + np.arange(5)[:, None] * 20, ["mass"] * 5) for _ in range(20)]
+    preds = [ImagePreds(g.boxes.copy(), np.full(5, 0.9), ["mass"] * 5) if i < 10
+             else ImagePreds(np.zeros((0, 4)), np.zeros(0), []) for i, g in enumerate(gts)]
+    return preds, gts
+
+
+def test_froc_ci_point_matches_froc_and_perfect_is_exact():
+    from radio.eval.detection import froc_sensitivity_ci
+
+    preds, gts = _clustered_case()
+    ci = froc_sensitivity_ci(preds, gts, "mass", fppi=1.0, n_boot=500)
+    assert ci["point"] == evaluate_detections(preds, gts, ["mass"])["mass"]["sens@1.0fp"] == 0.5
+    assert ci["n_gt"] == 100 and ci["n_boot"] == 500
+    perfect = froc_sensitivity_ci(preds[:10], gts[:10], "mass", n_boot=200)
+    assert perfect["point"] == perfect["lower"] == perfect["upper"] == 1.0
+    empty = froc_sensitivity_ci(preds, gts, "nodule", n_boot=50)
+    assert math.isnan(empty["lower"]) and empty["n_gt"] == 0
+
+
+def test_froc_ci_resamples_images_not_boxes():
+    from radio.eval.detection import froc_sensitivity_ci
+
+    preds, gts = _clustered_case()
+    ci = froc_sensitivity_ci(preds, gts, "mass", fppi=1.0, n_boot=2000, seed=1)
+    # A box-level binomial CI for 50/100 is about 0.40-0.60; lesions cluster in images, so the image
+    # bootstrap is close to a binomial over 10/20 images (about 0.28-0.72).
+    assert ci["lower"] < 0.35 < 0.65 < ci["upper"]
+    assert ci == froc_sensitivity_ci(preds, gts, "mass", fppi=1.0, n_boot=2000, seed=1)  # seeded
+
+
+def test_gate_lower_bound_is_stricter_than_point():
+    from radio.train.train_detector import DetTrainConfig, gate_class
+
+    preds, gts = _clustered_case()
+    te = evaluate_detections(preds, gts, ["mass"])["mass"]
+    base = dict(gate_min_sensitivity=0.45, gate_min_lesions=30, gate_bootstrap=500)
+    ok_point, g_point = gate_class(DetTrainConfig(gate_statistic="point", **base), preds, gts, "mass", te)
+    ok_lb, g_lb = gate_class(DetTrainConfig(**base), preds, gts, "mass", te)
+    assert ok_point and not ok_lb
+    assert g_lb["gate_statistic"] == "lower_bound"
+    assert g_lb["test_sens_ci_lower"] < 0.45 <= g_lb["test_sens_at_gate_fppi"]
+    few, _ = gate_class(DetTrainConfig(gate_statistic="point", gate_min_sensitivity=0.1, gate_min_lesions=101),
+                        preds, gts, "mass", te)
+    assert not few  # 100 boxes < 101 required
+    with pytest.raises(ValueError):
+        gate_class(DetTrainConfig(gate_statistic="median"), preds, gts, "mass", te)
+
+
 def test_ap_duplicate_detection_is_fp():
     tp = np.array([True, False])
     assert average_precision(tp, 1) == pytest.approx(1.0)
@@ -188,3 +239,4 @@ def test_patient_leak_report_and_regate(fake_chestx_det, det_run, tmp_path):
     assert res["leak_reduced"]["_summary"]["n_images"] == 7 and res["leaky_only"]["_summary"]["n_images"] == 1
     ops = json.loads((det_run / "det_bundle" / "operating_points.json").read_text())
     assert all(not o["validated"] and o["gate"]["test_split"] == "official_minus_known_patient_leak" for o in ops)
+    assert all(o["gate"]["gate_statistic"] == "lower_bound" and "test_sens_ci_lower" in o["gate"] for o in ops)

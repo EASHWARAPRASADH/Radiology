@@ -125,7 +125,7 @@ Mean test AUROC across all 14 labels: **0.63** (967 images, 62 patients).
 | 2.2 Detector | `models/detector.py` (Faster R-CNN R50-FPN v2, BSD-3), `train/train_detector.py`, `configs/detector_chestxdet.yaml` | Done; results in §4.3 |
 | 2.2 Metrics | `eval/detection.py`: mAP@0.5 / @0.25, FROC at 0.25/0.5/1/2 FP per image (hit = IoU ≥ 0.25), pointing accuracy of true positives | Done (unit-tested on hand-computed cases) |
 | 2.3 Operating points | Per-class box-score threshold at 1 FP/image, chosen on the validation split | Done |
-| 2.5 Gating + fusion | Per-class gate (FROC sensitivity ≥ 0.80 at 1 FP/image with ≥ 30 reference boxes) on the **leak-reduced** test split (`radio regate-detector`). Only gated classes create `image_observed` findings with `validated=true` boxes | Done |
+| 2.5 Gating + fusion | Per-class gate on the **leak-reduced** test split (`radio regate-detector`): the **lower end of a 95% image-level bootstrap CI** (2,000 replicates) for FROC sensitivity at 1 FP/image must be ≥ 0.80, with ≥ 30 reference boxes (`gate_statistic: lower_bound`; `point` reproduces the original point-estimate gate). Only gated classes create `image_observed` findings with `validated=true` boxes | Done |
 | 2.5 Fusion rules (`pipeline/run.py`) | Validated box + classifier `absent` → `uncertain`. Classifier `present` without a validated box for a focal finding → capped at `uncertain`. Detector-only concepts (fracture, calcification): validated box → `present`, otherwise `not_assessed` (0.80 sensitivity cannot rule out) | Done, tested end to end |
 | 2.6 Activation-map audit | `eval/pointing.py`, `radio eval-pointing` | Done. Findings in §4.2 |
 | 2.4 Laterality from anatomy | — | **Blocked.** Needs licence-clean lung/heart masks (Montgomery/JSRT terms unverified). Laterality stays `unknown` |
@@ -168,30 +168,30 @@ Measured 2026-11-25. Run `runs/chestxdet_frcnn_512` (not committed): Faster R-CN
 
 - **Split:** ChestX-Det official train 3,025 images, divided into 2,581 train and 444 validation by an image-name hash. That split is **not** patient-disjoint either, which affects only threshold selection, not the test numbers. Test is 553 images, of which 442 are leak-reduced and 111 leaky-only.
 - **Training curve:** validation mAP@0.25 rose every epoch except one, from 0.105 to 0.308. Validation mean sensitivity at 1 FP/image went from 0.28 to 0.68. The model had not plateaued; more epochs or higher resolution would probably help.
-- **Operating points:** each class's box-score threshold is chosen on validation at 1 FP/image. The validation gate is then applied on the **leak-reduced** test split (hit = IoU ≥ 0.25 with a radiologist box).
+- **Operating points:** each class's box-score threshold is chosen on validation at 1 FP/image. The validation gate is then applied on the **leak-reduced** test split (hit = IoU ≥ 0.25 with a radiologist box). The gate requires the lower end of the 95% CI for sensitivity at 1 FP/image to reach 0.80. The CI comes from an image-level bootstrap: whole images are resampled, so lesions and false positives from one image move together.
 
-| Class | Test boxes (clean) | AP@0.25 all | AP@0.25 clean | Sens@1FP all | Sens@1FP clean | Sens@1FP leaky-only | Gate |
-|---|---|---|---|---|---|---|---|
-| Cardiomegaly | 54 | 0.65 | 0.65 | 0.99 | 0.98 | 1.00 | **pass** |
-| Emphysema | 50 | 0.31 | 0.34 | 0.92 | 0.90 | 1.00 | **pass** |
-| Consolidation | 367 | 0.65 | 0.67 | 0.82 | 0.85 | 0.67 | **pass** |
-| Atelectasis | 47 | 0.43 | 0.44 | 0.82 | 0.81 | 1.00 (4 boxes) | **pass** (marginal) |
-| Pleural effusion | 318 | 0.60 | 0.62 | 0.76 | 0.76 | 0.82 | fail |
-| Mass | 27 | 0.13 | 0.16 | 0.59 | 0.63 | 0.57 | fail (< 30 boxes) |
-| Pleural thickening | 89 | 0.17 | 0.18 | 0.63 | 0.60 | 0.81 | fail |
-| Fibrosis | 78 | 0.22 | 0.18 | 0.58 | 0.55 | 0.62 | fail |
-| Calcification | 51 | 0.22 | 0.24 | 0.54 | 0.53 | 0.69 | fail |
-| Fracture | 97 | 0.18 | 0.18 | 0.43 | 0.41 | 0.50 | fail |
-| Pneumothorax | 33 | 0.12 | 0.08 | 0.40 | 0.36 | 0.56 | fail |
-| Nodule | 219 | 0.16 | 0.17 | 0.38 | 0.37 | 0.36 | fail |
-| **Mean** | | **0.32** | **0.32** | **0.66** | **0.65** | **0.72** | 4 of 12 |
+| Class | Test boxes (clean) | AP@0.25 all | AP@0.25 clean | Sens@1FP all | Sens@1FP clean | 95% CI clean | Sens@1FP leaky-only | Gate (lower bound) | Point-estimate gate |
+|---|---|---|---|---|---|---|---|---|---|
+| Cardiomegaly | 54 | 0.65 | 0.65 | 0.99 | 0.98 | 0.93–1.00 | 1.00 | **pass** | pass |
+| Emphysema | 50 | 0.31 | 0.34 | 0.92 | 0.90 | 0.79–0.98 | 1.00 | fail | pass |
+| Consolidation | 367 | 0.65 | 0.67 | 0.82 | 0.85 | 0.81–0.90 | 0.67 | **pass** (lower bound 0.807) | pass |
+| Atelectasis | 47 | 0.43 | 0.44 | 0.82 | 0.81 | 0.69–0.91 | 1.00 (4 boxes) | fail | pass |
+| Pleural effusion | 318 | 0.60 | 0.62 | 0.76 | 0.76 | 0.71–0.81 | 0.82 | fail | fail |
+| Mass | 27 | 0.13 | 0.16 | 0.59 | 0.63 | 0.41–0.80 | 0.57 | fail (< 30 boxes) | fail |
+| Pleural thickening | 89 | 0.17 | 0.18 | 0.63 | 0.60 | 0.48–0.69 | 0.81 | fail | fail |
+| Fibrosis | 78 | 0.22 | 0.18 | 0.58 | 0.55 | 0.43–0.67 | 0.62 | fail | fail |
+| Calcification | 51 | 0.22 | 0.24 | 0.54 | 0.53 | 0.36–0.66 | 0.69 | fail | fail |
+| Fracture | 97 | 0.18 | 0.18 | 0.43 | 0.41 | 0.31–0.52 | 0.50 | fail | fail |
+| Pneumothorax | 33 | 0.12 | 0.08 | 0.40 | 0.36 | 0.20–0.55 | 0.56 | fail | fail |
+| Nodule | 219 | 0.16 | 0.17 | 0.38 | 0.37 | 0.30–0.43 | 0.36 | fail | fail |
+| **Mean** | | **0.32** | **0.32** | **0.66** | **0.65** | | **0.72** | **2 of 12** | 4 of 12 |
 
 Leak-reduced test overall: mAP@0.5 0.23, mAP@0.25 0.32, mean sensitivity at 1 FP/image 0.65. Among true-positive hits, the box centre falls inside the radiologist box 92–100% of the time, depending on class. Contrast this with the classifier's activation maps in §4.2, which score at chance.
 
 **How to read these numbers**
 
 - **The leak inflates scores where it can be measured.** On the 111 leaky-only images, mean sensitivity at 1 FP/image is 0.72, against 0.65 on the clean images. The per-class leaky numbers rest on very few boxes (atelectasis has 4), so they show the direction of the bias, not its size. The 414 test images that cannot be mapped to NIH patients may still leak, so even the "clean" numbers are an upper bound.
-- **The gate uses a point estimate, which is too lenient for a product.** Lower 95% Wilson bounds on sensitivity at 1 FP/image are: cardiomegaly 0.90, consolidation 0.81, emphysema 0.79, atelectasis 0.68. These treat boxes as independent; boxes cluster within images, so the true intervals are wider. Under a lower-bound gate, only cardiomegaly and consolidation would pass. Phase 3 should gate on the lower confidence bound with an image-level bootstrap (08 §0, §2).
+- **The gate now uses the lower confidence bound, not the point estimate.** The first version of the gate compared the point estimate with 0.80, and passed four classes. Atelectasis passed at 0.81 on only 47 boxes, which is not evidence that sensitivity is at least 0.80. The gate now uses the lower end of the image-bootstrap 95% CI. Atelectasis (lower bound 0.69) and emphysema (0.79) drop out. Consolidation passes only just (0.807), so it is the first class to recheck on new data. Set `gate_statistic: point` to reproduce the original gate.
 - **Effusion fails the localisation gate even though the classifier detects it well** (AUROC 0.81 against radiologist labels). The pipeline handles this as designed: effusion can still be `present` as `model_inferred`, but its boxes are shown with `validated=false` and never support an `image_observed` claim.
 - **Every detector output is `research_only=true`.** The backbone is torchvision's ImageNet ResNet-50, whose licence verdict is CONDITIONAL (`registry.py`, `NOTICE-DATA.md`). A product build must retrain from a cleared initialisation: DINOv2, or our own SSL weights.
 
@@ -206,16 +206,16 @@ uv run radio infer runs/nih_dinov2s_224/bundle data/chestx_det/test/40749.png --
 |---|---|---|
 | Pleural effusion | `present`, `model_inferred`, 5 boxes all `validated=false` | Correct finding. The top-scoring box barely overlaps the reference (IoU 0.09); the fourth box matches it (IoU 0.78). Effusion localisation is ungated, so all boxes are display-only |
 | Consolidation | `uncertain`, `image_observed`, validated box | The validated box covers the **effusion** region (IoU 0.78 with the reference effusion box, 0 with the reference consolidation box). The fusion rules cap it at `uncertain`, so it goes to the radiologist |
-| Atelectasis | `uncertain`, `image_observed`, validated box | This box matches the reference **consolidation** box (IoU 0.81); atelectasis and consolidation are visually confusable |
-| Cardiomegaly, emphysema | `not_assessed` | Validated detector classes, but no box above threshold. A detector negative is not validated to rule out, and the classifier lacks calibration data |
+| Atelectasis | `uncertain`, `model_inferred`, box `validated=false` | This box matches the reference **consolidation** box (IoU 0.81); atelectasis and consolidation are visually confusable. Under the point-estimate gate, this box was `validated=true` and the finding was `image_observed`. The lower-bound gate removed that claim |
+| Cardiomegaly, emphysema | `not_assessed` | No box above threshold (cardiomegaly is validated, emphysema is not). A detector negative is not validated to rule out, and the classifier lacks calibration data |
 | Fracture, calcification | `not_assessed` (`detector_not_validated`) | Detector-only classes that failed the gate |
 | Report | `validation_passed=True`, OOD score 20.5 (threshold 34.7) | "Pleural effusion. Possible consolidation, lung opacity, nodule, atelectasis and fibrosis…" |
 
-This one image shows why validated boxes still need radiologist review: a class-level gate does not make each box correct. The fusion rules kept both mislocalised claims at `uncertain` rather than `present`.
+This one image shows why validated boxes still need radiologist review: a class-level gate does not make each box correct. The fusion rules kept the mislocalised consolidation claim at `uncertain` rather than `present`.
 
 **Phase-3 actions from this run:**
 
-1. Gate on the lower confidence bound (image-level bootstrap) instead of the point estimate.
+1. ~~Gate on the lower confidence bound (image-level bootstrap) instead of the point estimate.~~ Done; see the table above.
 2. Retrain from a commercially clean initialisation.
 3. Train longer and at higher resolution; the curve was still rising.
 4. Get a patient-disjoint external box test set; the ChestX-Det test split cannot fully rule out leaks.

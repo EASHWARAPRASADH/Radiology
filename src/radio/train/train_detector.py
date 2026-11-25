@@ -25,6 +25,7 @@ from radio.eval.detection import (
     ImagePreds,
     class_tp_arrays,
     evaluate_detections,
+    froc_sensitivity_ci,
     score_threshold_at_fppi,
 )
 from radio.models.detector import ClassOperatingPoint, DetectorConfig, build_detector, write_detector_bundle
@@ -56,6 +57,9 @@ class DetTrainConfig:
     gate_fppi: float = 1.0  # Phase-2 gate: FROC sensitivity at this FP/image on test...
     gate_min_sensitivity: float = 0.80  # ...must reach this
     gate_min_lesions: int = 30  # and the test set must contain at least this many reference boxes
+    gate_statistic: str = "lower_bound"  # "lower_bound" (image-level bootstrap CI) or "point" (Phase-2 original)
+    gate_ci_level: float = 0.95  # two-sided level; the gate uses the lower end
+    gate_bootstrap: int = 2000
 
     @classmethod
     def from_yaml(cls, path: str | Path, overrides: dict | None = None) -> DetTrainConfig:
@@ -66,6 +70,26 @@ class DetTrainConfig:
 
 def _gt(records: list[DetRecord]) -> list[ImageGT]:
     return [ImageGT(boxes=r.boxes, labels=list(r.labels)) for r in records]
+
+
+def gate_class(cfg: DetTrainConfig, preds: list[ImagePreds], gts: list[ImageGT], concept: str,
+               te: dict) -> tuple[bool, dict]:
+    """Apply the per-class localisation gate. With ``gate_statistic="lower_bound"`` the class passes only if
+    the lower end of the image-bootstrap CI for sensitivity at ``gate_fppi`` reaches ``gate_min_sensitivity``."""
+    if cfg.gate_statistic not in ("lower_bound", "point"):
+        raise ValueError(f"gate_statistic must be 'lower_bound' or 'point', got {cfg.gate_statistic!r}")
+    ci = froc_sensitivity_ci(preds, gts, concept, fppi=cfg.gate_fppi, n_boot=cfg.gate_bootstrap,
+                             level=cfg.gate_ci_level, seed=cfg.seed)
+    sens = te.get(f"sens@{cfg.gate_fppi}fp", float("nan"))
+    stat = ci["lower"] if cfg.gate_statistic == "lower_bound" else sens
+    validated = bool(te["n_gt_boxes"] >= cfg.gate_min_lesions and not np.isnan(stat)
+                     and stat >= cfg.gate_min_sensitivity)
+    gate = {"test_sens_at_gate_fppi": sens, "test_sens_ci_lower": ci["lower"], "test_sens_ci_upper": ci["upper"],
+            "ci_level": cfg.gate_ci_level, "ci_method": f"image_bootstrap_percentile_n{ci['n_boot']}",
+            "gate_statistic": cfg.gate_statistic, "gate_fppi": cfg.gate_fppi,
+            "test_n_gt_boxes": te["n_gt_boxes"], "test_ap25": te["ap25"],
+            "min_sensitivity": cfg.gate_min_sensitivity, "min_lesions": cfg.gate_min_lesions}
+    return validated, gate
 
 
 @torch.no_grad()
@@ -155,23 +179,17 @@ def train_detector(cfg: DetTrainConfig) -> Path:
     vp, tp_ = predict(model, val, device), predict(model, test, device)
     _dump_preds(out / "preds_val.json", val, vp)
     _dump_preds(out / "preds_test.json", test, tp_)
-    test_eval = evaluate_detections(tp_, _gt(test), DET_CONCEPTS)
+    test_gt = _gt(test)
+    test_eval = evaluate_detections(tp_, test_gt, DET_CONCEPTS)
     (out / "eval_test.json").write_text(json.dumps(test_eval, indent=2))
 
     ops = []
     for c in DET_CONCEPTS:
         s, t, _ = class_tp_arrays(vp, _gt(val), c)
         thr = score_threshold_at_fppi(s, t, len(val), cfg.target_fppi)
-        te = test_eval[c]
-        sens = te.get(f"sens@{cfg.gate_fppi}fp", float("nan"))
-        validated = bool(te["n_gt_boxes"] >= cfg.gate_min_lesions and not np.isnan(sens)
-                         and sens >= cfg.gate_min_sensitivity)
+        validated, gate = gate_class(cfg, tp_, test_gt, c, test_eval[c])
         ops.append(ClassOperatingPoint(concept=c, box_score_threshold=thr, target_fppi=cfg.target_fppi,
-                                       validated=validated,
-                                       gate={"test_sens_at_gate_fppi": sens, "gate_fppi": cfg.gate_fppi,
-                                             "test_n_gt_boxes": te["n_gt_boxes"], "test_ap25": te["ap25"],
-                                             "min_sensitivity": cfg.gate_min_sensitivity,
-                                             "min_lesions": cfg.gate_min_lesions}))
+                                       validated=validated, gate={**gate, "test_split": "official"}))
     bundle = write_detector_bundle(out / "det_bundle", model.state_dict(), dcfg, ops, lin)
     print(f"[done] best val mAP@0.25={best:.3f} test mAP@0.25={test_eval['_summary']['map25']:.3f} "
           f"validated={[o.concept for o in ops if o.validated]} research_only={lin['research_only']} -> {bundle}")
@@ -194,22 +212,19 @@ def regate_detector(run_dir: str | Path, exclude: set[str], cfg: DetTrainConfig 
                                      np.asarray(p["scores"], dtype=np.float32), p["labels"]))
                 r = recs[p["file_name"]]
                 gs.append(ImageGT(r.boxes, list(r.labels)))
-        return evaluate_detections(ps, gs, DET_CONCEPTS)
+        return ps, gs, evaluate_detections(ps, gs, DET_CONCEPTS)
 
-    clean = subset(lambda f: f not in exclude)
-    leaky = subset(lambda f: f in exclude) if exclude else None
+    clean_p, clean_g, clean = subset(lambda f: f not in exclude)
+    leaky = subset(lambda f: f in exclude)[2] if exclude else None
     (run / "eval_test_leak_reduced.json").write_text(json.dumps(clean, indent=2))
     if leaky is not None:
         (run / "eval_test_leaky_only.json").write_text(json.dumps(leaky, indent=2))
     ops_path = run / "det_bundle" / "operating_points.json"
     ops = json.loads(ops_path.read_text())
     for o in ops:
-        te = clean[o["concept"]]
-        sens = te.get(f"sens@{cfg.gate_fppi}fp", float("nan"))
-        o["validated"] = bool(te["n_gt_boxes"] >= cfg.gate_min_lesions and not np.isnan(sens)
-                              and sens >= cfg.gate_min_sensitivity)
-        o["gate"].update({"test_sens_at_gate_fppi": sens, "test_n_gt_boxes": te["n_gt_boxes"],
-                          "test_ap25": te["ap25"], "test_split": "official_minus_known_patient_leak",
-                          "excluded_images": len(exclude)})
+        o["validated"], gate = gate_class(cfg, clean_p, clean_g, o["concept"], clean[o["concept"]])
+        o["gate"] = {**gate, "test_split": "official_minus_known_patient_leak" if exclude else "official",
+                     "excluded_images": len(exclude)}
     ops_path.write_text(json.dumps(ops, indent=2))
-    return {"leak_reduced": clean, "leaky_only": leaky, "validated": [o["concept"] for o in ops if o["validated"]]}
+    return {"leak_reduced": clean, "leaky_only": leaky, "validated": [o["concept"] for o in ops if o["validated"]],
+            "gates": {o["concept"]: o["gate"] for o in ops}}
