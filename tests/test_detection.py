@@ -220,6 +220,36 @@ def test_end_to_end_with_detector(bundle_dir, det_run, tmp_path):
     assert "radio-cxr-detector" in r.model_versions
 
 
+def test_validated_box_is_uncertain_when_classifier_cannot_assess(bundle_dir, det_run, tmp_path):
+    """Classifier not calibrated for a concept + gated detector box -> uncertain, image_observed (never present).
+    Without a box the concept stays not_assessed: a detector negative cannot rule out."""
+    from radio.ingest.synthetic import phantom, write_dx_dicom
+    from radio.models.detector import Detection, DetectorBundle
+    from radio.pipeline.bundle import ModelBundle
+    from radio.pipeline.run import AnalysisPipeline
+    from radio.schema.findings import FindingStatus, Provenance
+
+    det = DetectorBundle(det_run / "det_bundle")
+    for op in det.operating_points.values():
+        op.validated = op.concept in ("pleural_effusion", "cardiomegaly")
+        op.box_score_threshold = 0.5
+    det.detect = lambda img: [Detection("pleural_effusion", 0.9, (100, 300, 200, 450))]
+    clf = ModelBundle.load(bundle_dir)
+    clf.ood.threshold = math.inf
+    for th in clf.thresholds:
+        if th.label in ("pleural_effusion", "cardiomegaly"):
+            th.validated = False  # classifier lacks calibration data for these
+    r = AnalysisPipeline(clf, detector=det).analyze(write_dx_dicom(phantom(size=512), tmp_path / "x.dcm")).result
+    by = {f.code: f for f in r.findings}
+    eff = by["pleural_effusion"]
+    assert eff.status == FindingStatus.uncertain and eff.provenance == Provenance.image_observed
+    assert "classifier_not_calibrated_for_concept" in eff.uncertainty_reasons
+    assert eff.evidence.model_id == "radio-cxr-detector" and eff.localizations[0].validated
+    assert by["cardiomegaly"].status == FindingStatus.not_assessed  # validated class, but no box
+    assert r.report.validation_passed, r.report.validation_issues
+    assert "Possible" in r.report.to_text() and "pleural effusion" in r.report.to_text().lower()
+
+
 def test_patient_leak_report_and_regate(fake_chestx_det, det_run, tmp_path):
     import pandas as pd
 

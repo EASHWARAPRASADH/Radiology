@@ -114,10 +114,19 @@ class AnalysisPipeline:
 
     def _versions(self) -> dict[str, str]:
         v = {self.bundle.model_id: self.bundle.model_version, "report_generator": GENERATOR_ID,
-             "pipeline": "radio.pipeline-v0.2"}
+             "pipeline": "radio.pipeline-v0.3"}
         if self.detector is not None:
             v[self.detector.model_id] = self.detector.version
         return v
+
+    def _detector_evidence(self, code: str, validated_boxes: list[Localization],
+                           det_raw: dict[str, float]) -> ModelEvidence:
+        op = self.detector.operating_points[code]
+        top = validated_boxes[0].score or 0.0
+        return ModelEvidence(model_id=self.detector.model_id, model_version=self.detector.version,
+                             raw_probability=min(det_raw.get(code, top), 1.0), calibrated_probability=min(top, 1.0),
+                             threshold_absent=min(op.box_score_threshold, 1.0),
+                             threshold_present=min(op.box_score_threshold, 1.0))
 
     def _abstain(self, img: LoadedImage | None, quality: ImageQuality, reason: str, detail: str | None,
                  ctx: ClinicalContext) -> AnalysisOutput:
@@ -184,6 +193,18 @@ class AnalysisPipeline:
             cal_p = float(1 / (1 + np.exp(-logits_np[j] / th.temperature)))
             status = decide(cal_p, th)
             if status == FindingStatus.not_assessed:
+                validated_boxes = [b for b in det_locs.get(code, []) if b.validated]
+                if code in det_valid and validated_boxes:
+                    # The classifier cannot assess this concept, but a gated detector boxed it. Report the box
+                    # for review, never as present: the detector gate measures sensitivity, not precision.
+                    findings.append(Finding(
+                        code=code, display=c.display, status=FindingStatus.uncertain,
+                        provenance=Provenance.image_observed, localizations=det_locs[code],
+                        uncertainty_reasons=["classifier_not_calibrated_for_concept",
+                                             "validated_detector_found_lesion"],
+                        evidence=self._detector_evidence(code, validated_boxes, det_raw),
+                        critical=c.critical_candidate))
+                    continue
                 findings.append(Finding(code=code, display=c.display, status=status,
                                         provenance=Provenance.model_inferred,
                                         not_assessed_reason="insufficient_validation_data"))
@@ -230,16 +251,9 @@ class AnalysisPipeline:
             validated_boxes = [b for b in det_locs.get(k, []) if b.validated]
             if k in det_valid and validated_boxes:
                 # Detector-only concept with a validated box: present, directly observed.
-                op = self.detector.operating_points[k]
-                top = validated_boxes[0].score or 0.0
                 findings.append(Finding(
                     code=k, display=c.display, status=FindingStatus.present, provenance=Provenance.image_observed,
-                    localizations=det_locs[k],
-                    evidence=ModelEvidence(model_id=self.detector.model_id, model_version=self.detector.version,
-                                           raw_probability=min(det_raw.get(k, top), 1.0),
-                                           calibrated_probability=min(top, 1.0),
-                                           threshold_absent=min(op.box_score_threshold, 1.0),
-                                           threshold_present=min(op.box_score_threshold, 1.0)),
+                    localizations=det_locs[k], evidence=self._detector_evidence(k, validated_boxes, det_raw),
                     critical=c.critical_candidate,
                 ))
                 continue

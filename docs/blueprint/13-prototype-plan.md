@@ -126,7 +126,7 @@ Mean test AUROC across all 14 labels: **0.63** (967 images, 62 patients).
 | 2.2 Metrics | `eval/detection.py`: mAP@0.5 / @0.25, FROC at 0.25/0.5/1/2 FP per image (hit = IoU ≥ 0.25), pointing accuracy of true positives | Done (unit-tested on hand-computed cases) |
 | 2.3 Operating points | Per-class box-score threshold at 1 FP/image, chosen on the validation split | Done |
 | 2.5 Gating + fusion | Per-class gate on the **leak-reduced** test split (`radio regate-detector`): the **lower end of a 95% image-level bootstrap CI** (2,000 replicates) for FROC sensitivity at 1 FP/image must be ≥ 0.80, with ≥ 30 reference boxes (`gate_statistic: lower_bound`; `point` reproduces the original point-estimate gate). Only gated classes create `image_observed` findings with `validated=true` boxes | Done |
-| 2.5 Fusion rules (`pipeline/run.py`) | Validated box + classifier `absent` → `uncertain`. Classifier `present` without a validated box for a focal finding → capped at `uncertain`. Detector-only concepts (fracture, calcification): validated box → `present`, otherwise `not_assessed` (0.80 sensitivity cannot rule out) | Done, tested end to end |
+| 2.5 Fusion rules (`pipeline/run.py`) | Validated box + classifier `absent` → `uncertain`. Classifier `present` without a validated box for a focal finding → capped at `uncertain`. Detector-only concepts (fracture, calcification): validated box → `present`, otherwise `not_assessed` (0.80 sensitivity cannot rule out). Concept the classifier cannot assess (no calibration data) but a gated detector boxed → `uncertain`, `image_observed`, never `present`. Added in Phase 3 (pipeline v0.3); without a box it stays `not_assessed` | Done, tested end to end |
 | 2.6 Activation-map audit | `eval/pointing.py`, `radio eval-pointing` | Done. Findings in §4.2 |
 | 2.4 Laterality from anatomy | — | **Blocked.** Needs licence-clean lung/heart masks (Montgomery/JSRT terms unverified). Laterality stays `unknown` |
 | 2.7 Continued SSL | — | **Deferred to cloud** (14) |
@@ -327,7 +327,31 @@ What this shows:
 - **The reporting layer behaves safely.** Every draft validated. No report called an abnormal image normal. When the system was confident (`present`), effusion was right 98% of the time and consolidation 90%.
 - **Misses are rare and stay within the calibration target.** Radiologist-positive images were called `absent` in 2–3% of cases for effusion, consolidation and nodule. The conformal thresholds were set for a false-negative rate of at most 0.05 on NIH labels, so this transfer to radiologist labels is roughly in line. Those 13 reports still contain a confident false negative, and they are the cases for the reader study to look at.
 - **The drafts are not useful yet: uncertainty overwhelms them.** About 85% of scored statuses are `uncertain`, even on images the radiologist marked negative. A typical draft lists five "possible" findings, which invites alert fatigue and automation bias (16 R28). The cause is the perception model, not the reporting layer. The classifier was trained on one NIH batch at 224 px (AUROC 0.6–0.8). A weak score means the band between the conformal miss-control threshold and the false-alarm-control threshold covers most images. The reporting layer is ready for a stronger classifier: full-data training at higher resolution in the cloud (14).
-- **Fusion gap: validated detector classes are dropped when the classifier cannot assess them.** Cardiomegaly passes the detector gate (sensitivity lower bound 0.93), yet it was `not_assessed` on every image. The classifier has too little calibration data for cardiomegaly, and `pipeline/run.py` stops at that point before looking at detector evidence. A proposed fix is to treat a validated box as an `uncertain`, `image_observed` claim in that case, but it needs a decision because it adds to the uncertainty load.
+- **Fusion gap: validated detector classes were dropped when the classifier could not assess them (fixed in pipeline v0.3).** Cardiomegaly passes the detector gate (sensitivity lower bound 0.93), yet in the run above it was `not_assessed` on every image. The classifier has too little calibration data for cardiomegaly, and `pipeline/run.py` stopped at that point without looking at detector evidence. Decision (2026-11-25): a validated box in that case becomes an `uncertain`, `image_observed` claim, with uncertainty reason `classifier_not_calibrated_for_concept`. It never becomes `present`, because the gate measures sensitivity, not precision.
+
+#### 6.3.1 Re-run with pipeline v0.3
+
+Same 416 images. Cardiomegaly is now reported. The rest of the report-level picture:
+
+| | v0.2 | v0.3 |
+|---|---|---|
+| Validation pass / false "normal" / reports with a false "absent" | 416 of 416 / 0 / 13 | 416 of 416 / 0 / 13 |
+| Mean asserted (uncertain) findings per report | 5.5 (5.0) | 6.3 (5.75) |
+| Finding precision / recall | 0.31 / 0.67 | 0.29 / 0.73 |
+| Cardiomegaly: radiologist-positive images flagged | 0 of 52 (not assessed) | 52 of 52 |
+| Cardiomegaly: images flagged in all | 0 | **326 of 416 (78%)**; 16% of the boxes hit a reference box |
+
+- **The new rule exposed an operating-point problem.** Per-class box thresholds are chosen at 1 false-positive box per image. That suits focal lesions, which can be many per image. Cardiomegaly is a global finding that occurs at most once per image, so 1 FP/image means flagging almost every image: on the leak-reduced test set, image-level specificity is 0.27.
+- **Lower false-positive rates for cardiomegaly**, threshold chosen on validation and measured on the 442 leak-reduced test images:
+
+| Validation FP/image | Box score threshold | Image sensitivity | Image specificity | Images flagged | FROC sensitivity, 95% CI |
+|---|---|---|---|---|---|
+| 1.0 (current) | 0.014 | 0.98 | 0.27 | 338 | 0.98 [0.94, 1.00] |
+| 0.25 | 0.374 | 0.91 | 0.71 | 163 | 0.91 [0.81, 0.98] |
+| 0.1 | 0.736 | 0.70 | 0.90 | 77 | 0.70 [0.59, 0.83] |
+| 0.05 | 0.862 | 0.50 | 0.97 | 39 | 0.63 [0.45, 0.76] |
+
+  At 0.25 FP/image, cardiomegaly still passes the lower-bound gate (0.81 ≥ 0.80) and flags half as many images. Global findings need their own operating point, chosen for image-level specificity; this is pending a decision. Emphysema, the other global class, fails the gate at any rate below 1 FP/image (lower bound 0.50 at 0.25).
 
 ## Sources
 
