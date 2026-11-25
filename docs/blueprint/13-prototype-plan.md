@@ -429,7 +429,54 @@ How to read the AUROC gains:
 - **More "possible" findings per report.** The count rose because three more concepts are now assessed, and on this abnormality-only test set they mostly land in the indeterminate band.
 - **Relaxing the false-positive limit does not reduce clutter.** Offline, with the same calibrated probabilities, raising α_FP from 0.05 to 0.10 / 0.20 / 0.30 lowers mean "possible" findings from 6.2 to 5.4 / 4.2 / 3.2. But precision of `present` calls falls from 0.73 to 0.60 / 0.50 / 0.42, and the total mentioned per report stays at 7.3. α_FP stays 0.05. Fewer, more correct findings per report need a stronger model: full NIH at 448 px plus more radiologist-labelled data (14, R28).
 
-The demo server (`.claude/launch.json`, `radio-api`) now serves the retrained classifier. The review page leads with a short summary, ranks "possible" findings by probability, and folds ruled-out and not-assessed findings away.
+The demo server (`.claude/launch.json`, `radio-api`) served this classifier until §6.5. The review page leads with a short summary, ranks "possible" findings by probability, and folds ruled-out and not-assessed findings away.
+
+### 6.5 Same data at 448 px (2026-11-25)
+
+The 224 px model still left about 6 "possible" findings per report, and nodule AUROC was only 0.66. Small findings lose detail at 224 px, so the same run was repeated at 448 px. Run `mixed_dinov2s_448`, config `configs/classifier_mixed_mac_448.yaml`. Data, split, calibration policy, epochs and seed are unchanged. The only other changes are the ones 448 px forces: batch 16 instead of 32 (memory), and learning rates and warm-up adjusted to match.
+
+**First attempt stalled; the learning rate was the cause, not the features.** With the 224 px learning rates at batch 16, validation AUROC stuck at about 0.56 (run kept as `runs/mixed_dinov2s_448_failed_lr`). To check whether DINOv2 features break at 448 px (high-norm artefact tokens are a known ViT issue at larger inputs), a frozen linear probe was trained on both resolutions: 448 px features scored 0.744 against 0.735 at 224 px, and showed no high-norm tokens. Halving the learning rates (encoder 1e-5, head 5e-4) and doubling the warm-up fixed it: epoch 0 reached 0.657, the same as the 224 px run. Training took about 8 min per epoch on an idle machine (about 70 min in all; wall time was longer because the Mac was in use).
+
+**Image-level AUROC against radiologist labels** (same 416 ChestX-Det test images as §6.3 and §6.4):
+
+| Concept | 224 px | 448 px | Activation-map hit rate, 224 → 448 |
+|---|---|---|---|
+| Pleural effusion | 0.919 | **0.933** | 0.36 → 0.22 |
+| Cardiomegaly | 0.890 | **0.896** | 0.19 → 0.29 |
+| Consolidation | 0.842 | **0.861** | 0.59 → 0.56 |
+| Pleural thickening | 0.826 | **0.843** | 0.10 → 0.10 |
+| Emphysema | 0.816 | **0.840** | 0.67 → 0.43 |
+| Pneumothorax | 0.799 | **0.840** | 0.04 → 0.00 |
+| Atelectasis | 0.762 | **0.770** | 0.14 → 0.07 |
+| Mass | 0.750 | **0.770** | 0.20 → 0.28 |
+| Nodule | 0.662 | **0.756** | 0.34 → 0.40 |
+| Fibrosis | 0.691 | **0.750** | 0.32 → 0.30 |
+| **Mean pointing hit rate** | 0.29 | 0.26 | chance 0.10 |
+
+- **AUROC improved for all 10 concepts.** Nodule gained most (+0.09) and fibrosis next (+0.06), as expected for small or fine-textured findings.
+- **Activation maps did not localise better** (mean hit rate 0.29 → 0.26). They remain display-only; localisation comes from the detector.
+- **NIH test set (NLP labels, 62 patients):** mean AUROC 0.693 → 0.715. Calibration on NIH is still poor for effusion (ECE 0.21) and consolidation (0.29), for the reason given in §6.4.
+- **Calibration coverage is unchanged:** the same 9 concepts are validated. Mass and pneumothorax (19 calibration positives each) still need more radiologist-labelled data.
+
+**Report-level effect** (same pipeline and detector as §6.4):
+
+| | 224 px | 448 px |
+|---|---|---|
+| Validation pass / false "normal" | 416 of 416 / 0 | 416 of 416 / 0 |
+| Mean "possible" findings per report | 6.2 | **5.4** |
+| Mean findings mentioned per report | 7.4 | **6.7** |
+| Finding precision / recall | 0.28 / 0.82 | **0.31** / 0.81 |
+| Reports with a false "absent" | 23 | 28 |
+| Effusion on positive images: present / possible / absent | 0.59 / 0.36 / 0.05 | **0.69** / 0.26 / 0.05 |
+| Nodule on positive images: present / possible / absent | 0.17 / 0.79 / 0.04 | **0.34** / 0.60 / 0.06 |
+| Cardiomegaly on negative images called absent | 0.23 | **0.40** |
+| Precision of `present`: effusion, consolidation, nodule, atelectasis | 0.95, 0.90, 0.73, 0.41 | 0.94, 0.92, 0.63, 0.32 |
+
+- **Fewer, more decisive findings.** "Possible" findings fell by 0.9 per report. Twice as many radiologist-positive nodules are now called present, and more negatives are ruled out for every assessed concept.
+- **The cost is more false "absent" calls**: 5 more reports, from atelectasis (0 → 5% of positives), emphysema (0 → 7%) and pleural thickening (3 → 7%). These sit at the α_FN = 0.05 target, but with 30–70 positives per concept the estimates are uncertain by several points, so they are tracked under R05 rather than accepted as proven.
+- **Precision of `present` dropped for nodule and atelectasis** because many more calls are made; the number of correct nodule calls still roughly doubled.
+
+**Decision:** the 448 px model replaces the 224 px model on the demo server (`.claude/launch.json`, `radio-api`). Inference stays under 1 s per image on the Mac. The review page leads with a short summary, ranks "possible" findings by probability, and folds ruled-out and not-assessed findings away. Uncertainty overload (R28) is reduced but not solved: 5.4 possible findings per report is still well above what a pilot could accept. The next gains need more data, not more resolution: the remaining NIH batches and more radiologist-labelled images, especially for mass and pneumothorax.
 
 ## Sources
 

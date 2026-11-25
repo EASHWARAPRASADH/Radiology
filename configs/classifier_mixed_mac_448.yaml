@@ -1,7 +1,7 @@
 # Phase-1 classifier retrained with radiologist labels: NIH CXR14 batch 1 (NLP labels) + ChestX-Det train
 # (radiologist labels for 10 of 14 concepts). Calibration uses radiologist labels wherever ChestX-Det has them.
 # Same data, calibration and schedule as classifier_mixed_mac.yaml; only the input resolution changes (224 -> 448)
-# to help small findings (nodules). ~13 min/epoch on an M4 Pro (measured 7 img/s at 448 px).
+# to help small findings (nodules). ~8 min/epoch on an otherwise idle M4 Pro (~10 img/s at 448 px).
 run_name: mixed_dinov2s_448
 purpose: research
 data:

@@ -63,7 +63,7 @@ gantt
 | Field | Detail |
 |---|---|
 | Objectives | Radiologist-authored template library; validator rule set complete; optional constrained LLM rephraser; QA metrics |
-| Status (2026-11-25) | Started on public data. Done: versioned template library (engineering draft, awaiting radiologist sign-off), validator perturbation suite, comparison against verified priors, report-level evaluation on ChestX-Det. Blocked on radiologists: gold QA set, template authorship, guideline rules. Main finding: the reporting layer is safe, but the Phase-1 classifier leaves about 5 "possible" findings per draft (13 §6) |
+| Status (2026-11-25) | Started on public data. Done: versioned template library (engineering draft, awaiting radiologist sign-off), validator perturbation suite, comparison against verified priors, report-level evaluation on ChestX-Det. Blocked on radiologists: gold QA set, template authorship, guideline rules. Main finding: the reporting layer is safe, but the classifier still leaves too many "possible" findings per draft: 5.35 with the Phase-1 model, 5.4 after retraining on radiologist labels at 448 px, which also raised AUROC on every radiologist-labelled concept (13 §6.4–6.5) |
 | Deliverables | Template library v1 (all Phase-1/2 findings × status × laterality × provenance); validator with rules a–i; gold QA set (~300); synthetic perturbation suite; optional LoRA rephraser + constrained decoding; report metrics dashboard |
 | Datasets | Partner image–report pairs (for rephraser target phrasing and Stage-5 alignment); research-only pairs (MIMIC-CXR, CheXpert Plus) for internal comparison only |
 | Models | Templates; small Apache-2.0 LLM (licence re-verified at selection); image–text alignment model (research → product when licensed pairs exist) |

@@ -8,7 +8,7 @@
         "run",
         "radio",
         "serve",
-        "runs/mixed_dinov2s_224/bundle",
+        "runs/mixed_dinov2s_448/bundle",
         "--detector",
         "runs/chestxdet_frcnn_512/det_bundle",
         "--port",
