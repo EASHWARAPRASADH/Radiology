@@ -104,6 +104,13 @@ def test_api_review_flow_and_exports(bundle_dir, tmp_path):
     assert resp.status_code == 201, resp.text
     rid = resp.json()["result_id"]
     assert resp.json()["review_status"] == "draft"
+    # Upload/review page and the decoded image used for box overlays
+    page = c.get("/")
+    assert page.status_code == 200 and "Radio" in page.text and "/v1/studies" in page.text
+    assert c.get(f"/v1/studies/{rid}/image.png").status_code == 401
+    png = c.get(f"/v1/studies/{rid}/image.png", headers=tech)
+    assert png.status_code == 200 and png.headers["content-type"] == "image/png" and png.content[:4] == b"\x89PNG"
+    assert c.get("/v1/health").json()["detector"] is False
     assert c.get(f"/v1/studies/{rid}/report", headers=tech).text.startswith("[DRAFT]")
 
     # FHIR: preliminary until approved

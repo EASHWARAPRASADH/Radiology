@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
 from radio.audit.log import AuditLog
@@ -78,10 +78,31 @@ def create_app(bundle_dir: str | Path | None, storage_dir: str | Path = "runs/ap
     app.state.pipeline = pipeline
     app.state.audit = audit
 
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    def review_page():
+        """Upload-and-review page for local testing (uses the same API and auth stub as any client)."""
+        return (Path(__file__).parent / "static" / "review.html").read_text()
+
     @app.get("/v1/health")
     def health():
         return {"status": "ok" if bundle else "no_model", "model_version": bundle.model_version if bundle else None,
-                "research_only": bundle.research_only if bundle else None, "audit_chain_valid": audit.verify()}
+                "research_only": bundle.research_only if bundle else None, "detector": detector is not None,
+                "audit_chain_valid": audit.verify()}
+
+    @app.get("/v1/studies/{rid}/image.png")
+    def get_image(rid: str, user: Annotated[User, Depends(current_user)]):
+        """The analysed image (after DICOM VOI LUT / photometric handling) in source pixel coordinates, so
+        finding boxes can be overlaid directly."""
+        import numpy as np
+        from PIL import Image
+
+        out = store.get(rid)
+        if out.image is None:
+            raise HTTPException(409, "no decoded image for this study (input was rejected before decoding)")
+        buf = io.BytesIO()
+        Image.fromarray((np.clip(out.image.pixels, 0, 1) * 255).astype("uint8")).save(buf, format="PNG")
+        audit.append("image_viewed", actor=user.id, subject=rid)
+        return Response(buf.getvalue(), media_type="image/png")
 
     @app.post("/v1/studies", response_model=AnalysisResult, status_code=201)
     async def create_study(user: Annotated[User, Depends(current_user)], file: UploadFile = File(...),

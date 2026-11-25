@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radio · upload and review</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #5d6676; --line: #dde1e7;
+    --accent: #2457c5; --present: #b42318; --uncertain: #b54708; --absent: #067647; --na: #667085;
+    --warn-bg: #fff4e5; --warn-ink: #7a4100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --panel: #191d23; --ink: #e6e9ee; --muted: #9aa3b2; --line: #2b313a;
+            --accent: #7ea6ff; --present: #ff8a80; --uncertain: #ffb35c; --absent: #6fd39a; --na: #9aa3b2;
+            --warn-bg: #2d2214; --warn-ink: #ffcf8a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .banner { background: var(--warn-bg); color: var(--warn-ink); padding: 8px 20px; font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); gap: 16px; padding: 16px 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+  input, select, textarea, button { font: inherit; color: inherit; }
+  input[type=text], select, textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px; }
+  button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .drop { border: 2px dashed var(--line); border-radius: 8px; padding: 18px; text-align: center; color: var(--muted); cursor: pointer; margin-bottom: 10px; }
+  .drop.over { border-color: var(--accent); color: var(--accent); }
+  .viewer { position: relative; width: 100%; background: #000; border-radius: 6px; overflow: hidden; min-height: 120px; }
+  .viewer img { display: block; width: 100%; height: auto; }
+  .viewer svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; align-items: center; }
+  .chip { display: inline-block; white-space: nowrap; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
+  .st-present { color: var(--present); } .st-uncertain { color: var(--uncertain); }
+  .st-absent { color: var(--absent); } .st-not_assessed { color: var(--na); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  pre.report { white-space: pre-wrap; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--bg); padding: 10px; border-radius: 6px; border: 1px solid var(--line); margin: 0; }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .muted { color: var(--muted); }
+  .err { color: var(--present); white-space: pre-wrap; }
+  .stack > * + * { margin-top: 14px; }
+  #spinner { display: none; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Radio · chest X-ray draft review</h1>
+  <div class="row" style="margin:0; flex:1; max-width:520px">
+    <div><label for="uid">User id</label><input id="uid" type="text" value="demo-radiologist"></div>
+    <div><label for="role">Role</label>
+      <select id="role"><option value="radiologist">radiologist</option><option value="technologist">technologist</option></select></div>
+  </div>
+  <span id="health" class="muted"></span>
+</header>
+<div class="banner">Research prototype, not a medical device. AI output is a draft for a qualified radiologist and must not be used for clinical decisions.
+  Do not upload images that identify a real patient.</div>
+
+<main>
+  <section class="stack">
+    <div class="panel">
+      <h2>Upload</h2>
+      <div id="drop" class="drop">Drop a chest X-ray here (DICOM, PNG or JPEG) or click to choose a file</div>
+      <input id="file" type="file" accept=".dcm,.dicom,.png,.jpg,.jpeg,application/dicom,image/png,image/jpeg" hidden>
+      <div class="row">
+        <div><label for="view">View (PNG/JPEG have no header)</label>
+          <select id="view"><option value="">not recorded</option><option value="PA" selected>PA</option><option value="AP">AP</option></select></div>
+        <div><label for="indication">Indication (optional)</label><input id="indication" type="text" placeholder="e.g. cough, fever"></div>
+      </div>
+      <button id="analyse" class="primary" disabled>Analyse</button>
+      <span id="spinner">Analysing…</span>
+      <div id="uploadErr" class="err"></div>
+    </div>
+    <div class="panel" id="imagePanel" hidden>
+      <h2>Image and AI boxes</h2>
+      <div class="viewer"><img id="img" alt="uploaded chest radiograph"><svg id="overlay"></svg></div>
+      <div class="legend">
+        <span><svg width="22" height="10"><rect x="1" y="1" width="20" height="8" fill="none" stroke="currentColor" stroke-width="2"/></svg> validated detector box</span>
+        <span><svg width="22" height="10"><rect x="1" y="1" width="20" height="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/></svg> unvalidated (display only)</span>
+        <label style="display:inline-flex; gap:6px; align-items:center; margin:0"><input id="showUnval" type="checkbox"> show unvalidated boxes</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="stack">
+    <div class="panel" id="resultPanel" hidden>
+      <h2>Result</h2>
+      <div class="meta" id="meta"></div>
+      <pre class="report" id="report"></pre>
+    </div>
+    <div class="panel" id="findingsPanel" hidden>
+      <h2>Findings (structured)</h2>
+      <table><thead><tr><th>Finding</th><th>Status</th><th>Source</th><th>Detail</th></tr></thead><tbody id="findings"></tbody></table>
+    </div>
+    <div class="panel" id="reviewPanel" hidden>
+      <h2>Radiologist review</h2>
+      <p class="muted" id="reviewHint" style="margin-top:0"></p>
+      <label for="amendText">Amended report text (for Amend)</label>
+      <textarea id="amendText" rows="5"></textarea>
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">
+        <button id="approve" class="primary">Approve draft</button>
+        <button id="amend">Amend with my text</button>
+        <button id="reject">Reject</button>
+      </div>
+      <div id="reviewErr" class="err"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const STATUS_ORDER = { present: 0, uncertain: 1, absent: 2, not_assessed: 3 };
+const PROV = { image_observed: "seen in image (validated box)", model_inferred: "whole-image AI inference",
+               radiologist_entered: "radiologist", clinical_history: "clinical history", prior_report: "prior report" };
+let file = null, current = null, objectUrl = null;
+
+function headers() { return { "X-User-Id": $("uid").value.trim() || "anonymous", "X-User-Role": $("role").value }; }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+  if (!r.ok) { let d; try { d = (await r.json()).detail; } catch { d = r.statusText; } throw new Error(`${r.status}: ${typeof d === "string" ? d : JSON.stringify(d)}`); }
+  return r;
+}
+
+fetch("/v1/health").then(r => r.json()).then(h => {
+  $("health").textContent = `model ${h.model_version || "none"}${h.research_only ? " · research-only weights" : ""}${h.detector ? " · detector on" : ""}`;
+}).catch(() => {});
+
+function pick(f) {
+  if (!f) return;
+  file = f; $("drop").textContent = `${f.name} (${(f.size / 1e6).toFixed(1)} MB)`; $("analyse").disabled = false;
+}
+$("drop").onclick = () => $("file").click();
+$("file").onchange = (e) => pick(e.target.files[0]);
+["dragenter", "dragover"].forEach(ev => $("drop").addEventListener(ev, e => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => $("drop").addEventListener(ev, e => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", e => pick(e.dataTransfer.files[0]));
+
+$("analyse").onclick = async () => {
+  $("uploadErr").textContent = ""; $("spinner").style.display = "inline"; $("analyse").disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    if ($("view").value) fd.append("view_position", $("view").value);
+    if ($("indication").value.trim()) fd.append("indication", $("indication").value.trim());
+    current = await (await api("/v1/studies", { method: "POST", body: fd })).json();
+    await render();
+  } catch (e) { $("uploadErr").textContent = e.message; }
+  finally { $("spinner").style.display = "none"; $("analyse").disabled = !file; }
+};
+
+async function render() {
+  const r = current;
+  // image (served by the API so DICOM works too)
+  try {
+    const blob = await (await api(`/v1/studies/${r.result_id}/image.png`)).blob();
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(blob);
+    $("img").onload = drawBoxes; $("img").src = objectUrl; $("imagePanel").hidden = false;
+  } catch { $("imagePanel").hidden = true; }
+
+  const q = r.image_quality || {};
+  const chips = [
+    `<span class="chip">${esc(r.review_status)}</span>`,
+    r.abstention ? `<span class="chip st-present">AI abstained: ${esc(r.abstention.reason)}</span>` : "",
+    r.report ? `<span class="chip ${r.report.validation_passed ? "st-absent" : "st-present"}">validator ${r.report.validation_passed ? "passed" : "FAILED"}</span>` : "",
+    `<span class="chip">critical: ${esc(r.critical_status)}</span>`,
+    q.ood_score != null ? `<span class="chip">OOD ${q.ood_score.toFixed(1)} / ${q.ood_threshold.toFixed(1)}</span>` : "",
+    `<span class="chip">quality: ${esc(q.status)}</span>`,
+  ];
+  $("meta").innerHTML = chips.join("");
+  $("report").textContent = await (await api(`/v1/studies/${r.result_id}/report`)).text();
+  $("resultPanel").hidden = false;
+
+  const rows = [...r.findings].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+  $("findings").innerHTML = rows.map(f => {
+    const side = f.laterality && !["unknown", "not_applicable"].includes(f.laterality) ? ` (${f.laterality})` : "";
+    let detail = "";
+    if (f.status === "not_assessed") detail = esc((f.not_assessed_reason || "").replaceAll("_", " "));
+    else if (f.evidence) detail = `p=${f.evidence.calibrated_probability.toFixed(2)}`;
+    if (f.uncertainty_reasons?.length) detail += ` · ${esc(f.uncertainty_reasons.join(", ").replaceAll("_", " "))}`;
+    if (f.critical) detail += ` · <b>critical candidate</b>`;
+    return `<tr><td>${esc(f.display)}${esc(side)}</td><td><span class="chip st-${f.status}">${f.status.replace("_", " ")}</span></td>
+            <td class="muted">${f.status === "not_assessed" ? "—" : esc(PROV[f.provenance] || f.provenance)}</td><td class="muted">${detail}</td></tr>`;
+  }).join("");
+  $("findingsPanel").hidden = false;
+
+  const final = ["approved", "rejected"].includes(r.review_status);
+  $("reviewPanel").hidden = false;
+  $("reviewHint").textContent = final ? `This study is ${r.review_status}.`
+    : $("role").value !== "radiologist" ? "Switch the role to radiologist to review." :
+      r.report && !r.report.validation_passed ? "The draft failed validation: it can only be amended with your own text or rejected." :
+      "Approve the draft as written, amend it with your own text, or reject it.";
+  ["approve", "amend", "reject"].forEach(id => $(id).disabled = final);
+}
+
+function drawBoxes() {
+  const svg = $("overlay"), img = $("img"), r = current;
+  const W = img.naturalWidth, H = img.naturalHeight;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const css = getComputedStyle(document.documentElement);
+  const color = { present: css.getPropertyValue("--present"), uncertain: css.getPropertyValue("--uncertain") };
+  const showUnval = $("showUnval").checked;
+  const sw = Math.max(2, W / 300), fs = Math.max(12, W / 45);
+  let out = "";
+  for (const f of r.findings) {
+    if (!["present", "uncertain"].includes(f.status)) continue;
+    for (const loc of f.localizations || []) {
+      if (loc.method !== "detector" || !loc.bbox) continue;
+      if (!loc.validated && !showUnval) continue;
+      const b = loc.bbox, c = loc.validated ? color[f.status] : "#c0c6d0";
+      const dash = loc.validated ? "" : `stroke-dasharray="${sw * 3} ${sw * 2}"`;
+      out += `<rect x="${b.x_min}" y="${b.y_min}" width="${b.x_max - b.x_min}" height="${b.y_max - b.y_min}" fill="none" stroke="${c}" stroke-width="${sw}" ${dash}/>`;
+      out += `<text x="${b.x_min + sw}" y="${Math.max(fs, b.y_min - sw)}" font-size="${fs}" fill="${c}" font-family="system-ui" paint-order="stroke" stroke="#000" stroke-width="${sw}">${esc(f.display)}${loc.score != null ? " " + loc.score.toFixed(2) : ""}</text>`;
+    }
+  }
+  svg.innerHTML = out;
+}
+$("showUnval").onchange = () => current && drawBoxes();
+$("role").onchange = () => current && render();
+
+async function review(action) {
+  $("reviewErr").textContent = "";
+  const body = { action };
+  if (action === "amend") body.final_report_text = $("amendText").value.trim();
+  try {
+    current = await (await api(`/v1/reports/${current.result_id}/review`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+    await render();
+  } catch (e) { $("reviewErr").textContent = e.message; }
+}
+$("approve").onclick = () => review("approve");
+$("amend").onclick = () => review("amend");
+$("reject").onclick = () => review("reject");
+</script>
+</body>
+</html>

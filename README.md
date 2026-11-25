@@ -69,6 +69,20 @@ uv run radio --help
    uv run radio serve runs/nih_dinov2s_smoke/bundle
    ```
 
+### Try it in the browser
+
+Start the API with the classifier and the detector, then open http://127.0.0.1:8765/:
+
+```bash
+uv run radio serve runs/nih_dinov2s_224/bundle --detector runs/chestxdet_frcnn_512/det_bundle --port 8765
+```
+
+- **Upload:** drop in a chest X-ray as DICOM, PNG or JPEG. For PNG and JPEG, pick the view, since they carry no header.
+- **What you see:** the AI draft report, the structured findings, and the detector boxes over the image. Solid boxes are validated; dashed boxes are display-only.
+- **Review:** as a radiologist you can approve, amend or reject the draft.
+- **Not a real login:** user and role are a prototype stand-in for proper sign-in.
+- **No patient images:** don't upload anything that identifies a real patient. Results are kept under `runs/api_demo_store`.
+
 ### Phase 2: localisation (ChestX-Det)
 
 1. Download ChestX-Det (1.4 GB). The script validates the archives before extracting them:
