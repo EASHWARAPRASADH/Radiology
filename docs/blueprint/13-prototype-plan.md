@@ -478,6 +478,8 @@ The 224 px model still left about 6 "possible" findings per report, and nodule A
 
 **Decision:** the 448 px model replaces the 224 px model on the demo server (`.claude/launch.json`, `radio-api`). Inference stays under 1 s per image on the Mac. The review page leads with a short summary, ranks "possible" findings by probability, and folds ruled-out and not-assessed findings away. Uncertainty overload (R28) is reduced but not solved: 5.4 possible findings per report is still well above what a pilot could accept. The next gains need more data, not more resolution: the remaining NIH batches and more radiologist-labelled images, especially for mass and pneumothorax.
 
+**Ensembling the 224 px and 448 px models does not help (checked 2026-11-26).** Both runs share the validation split, so their mean logit was calibrated the same way (temperatures plus conformal thresholds) and scored offline on the same 416 test images. The ensemble raised cardiomegaly AUROC (0.896 → 0.917) but lowered nodule (0.756 → 0.742) and fibrosis (0.750 → 0.729). It also left slightly more classifier-level "possible" findings per image (4.68 against 4.50 for 448 px alone), and it would double inference time. It was not adopted. Horizontal-flip test-time augmentation was not tried: the pipeline never flips images, because laterality is clinically meaningful.
+
 ## Sources
 
 - NIH ChestX-ray14 share and terms: https://nihcc.app.box.com/v/ChestXray-NIHCC
