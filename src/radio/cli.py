@@ -184,31 +184,42 @@ def validator_suite(n: int = 2000, seed: int = 0, out: Path = typer.Option(None)
         out.write_text(json.dumps(res, indent=2))
 
 
+def _eval_set(det_root: Path, eval_set: str, matches: Path, nih_test_list: Path, leak_file: Path,
+              include_file: Path | None):
+    from radio.data.chestx_det import eval_records
+
+    m = json.loads(matches.read_text()) if matches.exists() else {}
+    nih_test = set(nih_test_list.read_text().split()) if nih_test_list.exists() else set()
+    leaky = set(json.loads(leak_file.read_text())["leaky_test_images"]) if leak_file.exists() else set()
+    include = set(json.loads(include_file.read_text())) if include_file else None
+    return eval_records(det_root, eval_set, m, nih_test, leaky, include)
+
+
 @app.command("report-eval")
 def report_eval(bundle: Path, detector: Path = typer.Option(None), det_root: Path = Path("data/chestx_det"),
                 split: str = "test", out: Path = Path("runs/report_eval"),
                 matches: Path = Path("data/chestx_det/nih_matches.json"),
                 nih_test_list: Path = Path("data/nih/test_list.txt"),
                 leak_file: Path = Path("data/chestx_det/test_patient_leak.json"),
+                eval_set: str = typer.Option("chestx_test", help="chestx_test | nih_test_patients"),
+                include_file: Path = typer.Option(None, help="JSON list of file names to restrict the set to"),
                 view_position: str = "PA", limit: int = typer.Option(None)):
     """WP 3.4: run the full pipeline on ChestX-Det images and score the draft reports against radiologist labels.
 
-    Excludes ChestX-Det copies of NIH images the classifier trained or calibrated on, and test images that share
-    a patient with ChestX-Det train (the detector's training set)."""
-    from radio.data.chestx_det import DET_CONCEPTS, load_split
+    ``chestx_test`` excludes ChestX-Det copies of NIH images the classifier trained or calibrated on, and test
+    images that share a patient with ChestX-Det train (the detector's training set). ``nih_test_patients`` is
+    patient-clean for the classifier only, so it refuses ``--detector``."""
+    from radio.data.chestx_det import DET_CONCEPTS
     from radio.eval.report_eval import evaluate_reports
     from radio.pipeline.bundle import ModelBundle
     from radio.pipeline.run import AnalysisPipeline
 
-    exclude: set[str] = set()
-    if matches.exists():
-        nih_test = set(nih_test_list.read_text().split()) if nih_test_list.exists() else set()
-        exclude |= {k for k, v in json.loads(matches.read_text()).items() if v not in nih_test}
-    if leak_file.exists():
-        exclude |= set(json.loads(leak_file.read_text())["leaky_test_images"])
-    all_recs = load_split(det_root, split)
-    recs = [r for r in all_recs if r.file_name not in exclude][:limit]
-    n_excluded = len(all_recs) - len([r for r in all_recs if r.file_name not in exclude])
+    if split != "test":
+        raise typer.BadParameter("only the test split is supported; use --eval-set")
+    if detector and eval_set == "nih_test_patients":
+        raise typer.BadParameter("nih_test_patients includes the detector's training images; drop --detector")
+    recs, n_excluded = _eval_set(det_root, eval_set, matches, nih_test_list, leak_file, include_file)
+    recs = recs[:limit]
     det = None
     if detector:
         from radio.models.detector import DetectorBundle
@@ -253,27 +264,25 @@ def report_eval(bundle: Path, detector: Path = typer.Option(None), det_root: Pat
 def eval_pointing(bundle: Path, det_root: Path = Path("data/chestx_det"), run_dir: Path = typer.Option(None),
                   matches: Path = Path("data/chestx_det/nih_matches.json"), split: str = "test",
                   nih_test_list: Path = Path("data/nih/test_list.txt"),
-                  leak_file: Path = Path("data/chestx_det/test_patient_leak.json")):
+                  leak_file: Path = Path("data/chestx_det/test_patient_leak.json"),
+                  eval_set: str = typer.Option("chestx_test", help="chestx_test | nih_test_patients"),
+                  include_file: Path = typer.Option(None, help="JSON list of file names to restrict the set to"),
+                  tag: str = typer.Option("", help="suffix for the output file name")):
     """WP 2.6: classifier activation-map pointing game + image AUROC vs ChestX-Det radiologist labels.
 
-    Excludes ChestX-Det copies of NIH images the classifier trained on, and test images that share a patient
-    with ChestX-Det train (relevant once the classifier is trained on ChestX-Det train, e.g. the mixed run)."""
-    from radio.data.chestx_det import load_split
+    ``chestx_test`` excludes ChestX-Det copies of NIH images the classifier trained on, and test images that share
+    a patient with ChestX-Det train. ``nih_test_patients`` uses ChestX-Det images of NIH official-test patients
+    from both splits (patient-clean for the classifier)."""
     from radio.eval.pointing import pointing_game
     from radio.pipeline.bundle import ModelBundle
 
+    if split != "test":
+        raise typer.BadParameter("only the test split is supported; use --eval-set")
     b = ModelBundle.load(bundle)
-    exclude: set[str] = set()
-    if matches.exists():
-        m = json.loads(matches.read_text())
-        # Exclude ChestX-Det copies of NIH images the classifier trained/calibrated on (everything outside the
-        # NIH official test list). Copies of NIH test-list images were never seen and are kept.
-        nih_test = set(nih_test_list.read_text().split()) if nih_test_list.exists() else set()
-        exclude = {k for k, v in m.items() if v not in nih_test}
-    if split == "test" and leak_file.exists():
-        exclude |= set(json.loads(leak_file.read_text())["leaky_test_images"])
-    res = pointing_game(b, load_split(det_root, split), exclude=exclude)
-    target = (run_dir or bundle.parent) / f"pointing_{split}.json"
+    recs, _ = _eval_set(det_root, eval_set, matches, nih_test_list, leak_file, include_file)
+    res = pointing_game(b, recs)
+    name = f"pointing_{eval_set}{'_' + tag if tag else ''}.json"
+    target = (run_dir or bundle.parent) / name
     target.write_text(json.dumps(res, indent=2))
     typer.echo(f"{'label':<20}{'lesion imgs':>12}{'hit rate':>10}{'chance':>9}{'AUROC(rad)':>12}{'pos':>6}")
     for k, v in res.items():

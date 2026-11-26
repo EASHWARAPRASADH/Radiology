@@ -49,6 +49,33 @@ def load_split(root: str | Path, split: str) -> list[DetRecord]:
     return out
 
 
+EVAL_SETS = ("chestx_test", "nih_test_patients")
+
+
+def eval_records(root: str | Path, eval_set: str, matches: dict[str, str], nih_test: set[str],
+                 leaky: set[str] = frozenset(), include: set[str] | None = None) -> tuple[list[DetRecord], int]:
+    """Radiologist-labelled evaluation images for a classifier trained on NIH + ChestX-Det train.
+
+    ``chestx_test``: ChestX-Det test split, minus copies of NIH images outside the NIH official test list (the
+    classifier may have trained on them) and minus ``leaky`` images (patient also in ChestX-Det train).
+    ``nih_test_patients``: ChestX-Det images from *both* splits that are copies of NIH official-test-list images.
+    Those patients are held out of NIH training, and ``load_mixed`` drops their ChestX-Det train images, so the set
+    is patient-clean for the classifier. It is NOT clean for the detector, which trains on all of ChestX-Det train.
+    Unmapped images (patient unknown) are left out. Returns (records, number excluded)."""
+    if eval_set == "chestx_test":
+        cands = load_split(root, "test")
+        keep = [r for r in cands if not (r.file_name in matches and matches[r.file_name] not in nih_test)
+                and r.file_name not in leaky]
+    elif eval_set == "nih_test_patients":
+        cands = load_split(root, "train") + load_split(root, "test")
+        keep = [r for r in cands if matches.get(r.file_name) in nih_test]
+    else:
+        raise ValueError(f"unknown eval_set {eval_set!r}; expected one of {EVAL_SETS}")
+    if include is not None:
+        keep = [r for r in keep if r.file_name in include]
+    return keep, len(cands) - len(keep)
+
+
 def split_train_val(records: list[DetRecord], val_frac: float = 0.15, salt: str = "cxdet") -> tuple[list, list]:
     def bucket(name: str) -> float:
         return int(hashlib.sha256(f"{salt}:{name}".encode()).hexdigest()[:8], 16) / 0xFFFFFFFF

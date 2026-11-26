@@ -1,0 +1,36 @@
+# 448-px mixed classifier on NIH CXR14 batches 1-5 (~45k images, NLP labels) + ChestX-Det train (radiologist
+# labels for 10 of 14 concepts). Same split rules, calibration policy and optimiser as classifier_mixed_mac_448.yaml.
+# About 9x the NIH images, so 5 epochs instead of 8 (still ~4x more optimiser steps). Run
+# `radio dedupe-chestx-det` and `radio leak-check-chestx-det` after downloading, so ChestX-Det copies of the new
+# NIH images inherit their patient and split.
+run_name: mixed5_dinov2s_448
+purpose: research
+data:
+  dataset_ids: [nih_cxr14, chestx_det]
+  csv: data/nih/Data_Entry_2017.csv
+  images: data/nih/images
+  split_dir: data/nih
+  max_images: null
+  val_frac: 0.25
+  chestx_det_root: data/chestx_det
+  chestx_det_matches: data/chestx_det/nih_matches.json
+  chestx_det_val_frac: 0.2         # 20% gives >= 30 calibration positives for emphysema
+  calibration_policy: radiologist_where_available
+model:
+  encoder: vit_small_patch14_dinov2.lvd142m
+  pretrained: true
+  img_size: 448
+  dropout: 0.1
+optim:
+  epochs: 5
+  batch_size: 16            # 448 px: halved for 24 GB unified memory
+  lr_head: 5.0e-4           # halved with the batch: the 224-px LRs at batch 16 stalled at AUROC ~0.56
+  lr_encoder: 1.0e-5
+  weight_decay: 0.05
+  warmup_frac: 0.1
+  loss: bce
+  num_workers: 6
+  amp: true
+  device: auto
+  seed: 0
+  max_ood_train_feats: 3000

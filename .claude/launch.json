@@ -26,9 +26,9 @@
         "run",
         "radio",
         "monitor",
-        "runs/mixed_dinov2s_448",
+        "runs/mixed5_dinov2s_448",
         "--log",
-        "runs/train_mixed_448.log",
+        "runs/train_mixed5_448.log",
         "--port",
         "8766"
       ],
